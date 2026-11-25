@@ -1,7 +1,7 @@
 <Project>
   <!-- Installers are WiX projects: don't inherit the .NET app settings from the repo root. -->
   <PropertyGroup>
-    <Version Condition="'$(Version)' == ''">0.1.0</Version>
+    <Version Condition="'$(Version)' == ''">0.2.0</Version>
     <AssetsDir>$(MSBuildThisFileDirectory)..\assets</AssetsDir>
   </PropertyGroup>
 </Project>

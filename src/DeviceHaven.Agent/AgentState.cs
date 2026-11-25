@@ -25,6 +25,37 @@ public sealed class AgentStateData
     public AgentSettings? Settings { get; set; }
     public string? LastInventoryHash { get; set; }
     public DateTimeOffset? LastInventoryAt { get; set; }
+    public bool ForceInventory { get; set; }
+    public DateTimeOffset? LastCheckInAt { get; set; }
+
+    /// <summary>Results of finished commands, kept until the server has them.</summary>
+    public List<CommandResult> PendingResults { get; set; } = [];
+
+    /// <summary>Notifications for the tray app (newest last), kept for 7 days.</summary>
+    public List<TrayNotification> Notifications { get; set; } = [];
+
+    public RestartState? Restart { get; set; }
+
+    public UpdateReport? Updates { get; set; }
+    public string? UpdatesHash { get; set; }
+    public string? AcceptedUpdatesHash { get; set; }
+    public DateTimeOffset? LastUpdateScanAt { get; set; }
+
+    public void Notify(string kind, string title, string message)
+    {
+        Notifications.Add(new TrayNotification(Guid.NewGuid(), kind, title, message, DateTimeOffset.UtcNow));
+        Notifications.RemoveAll(n => n.CreatedAt < DateTimeOffset.UtcNow.AddDays(-7));
+        if (Notifications.Count > 30) Notifications.RemoveRange(0, Notifications.Count - 30);
+    }
+}
+
+/// <summary>A restart the admin asked for, or that installed updates need.</summary>
+public sealed class RestartState
+{
+    public DateTimeOffset RequestedAt { get; set; }
+    public DateTimeOffset Deadline { get; set; }
+    public string? Reason { get; set; }
+    public bool Initiated { get; set; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -41,6 +72,7 @@ public sealed class AgentStore
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("DeviceHaven.Agent.DeviceToken.v1");
     private readonly string _dir;
+    private readonly Lock _stateLock = new();
 
     public AgentStore(string? directory = null)
     {
@@ -98,8 +130,30 @@ public sealed class AgentStore
             ? JsonSerializer.Deserialize(File.ReadAllText(StatePath), AgentJson.Default.AgentStateData) ?? new AgentStateData()
             : new AgentStateData();
 
-    public void SaveState(AgentStateData state) =>
-        WriteAtomic(StatePath, JsonSerializer.SerializeToUtf8Bytes(state, AgentJson.Default.AgentStateData));
+    public void SaveState(AgentStateData state)
+    {
+        lock (_stateLock) WriteAtomic(StatePath, JsonSerializer.SerializeToUtf8Bytes(state, AgentJson.Default.AgentStateData));
+    }
+
+    /// <summary>
+    /// Changes the saved state safely while other parts of the agent (jobs,
+    /// the tray connection) may be doing the same. Returns the saved state.
+    /// </summary>
+    public AgentStateData Update(Action<AgentStateData> change)
+    {
+        lock (_stateLock)
+        {
+            var state = LoadState();
+            change(state);
+            WriteAtomic(StatePath, JsonSerializer.SerializeToUtf8Bytes(state, AgentJson.Default.AgentStateData));
+            return state;
+        }
+    }
+
+    public AgentStateData ReadState()
+    {
+        lock (_stateLock) return LoadState();
+    }
 
     public string? LoadToken()
     {

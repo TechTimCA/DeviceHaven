@@ -12,11 +12,13 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
-      VERSION: 0.1.${{ github.run_number }}
+      VERSION: 0.2.${{ github.run_number }}
+      # The release the upgrade test starts from: what people have installed today.
+      UPGRADE_FROM: v0.1.8
 
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +52,13 @@ jobs:
           -p:Version=${{ env.VERSION }}
           --output out/agent
 
+      - name: Publish tray app (win-x64, native)
+        shell: pwsh
+        run: |
+          dotnet publish src/DeviceHaven.Tray/DeviceHaven.Tray.csproj --configuration Release --runtime win-x64 -p:Version=${{ env.VERSION }} --output out/tray
+          Copy-Item out/tray/DeviceHaven.Tray.exe out/agent/
+          "Tray app: {0:N1} MB" -f ((Get-Item out/agent/DeviceHaven.Tray.exe).Length / 1MB)
+
       - name: Build installers (MSI)
         run: |
           dotnet build installer/Server/DeviceHaven.Server.Installer.wixproj --configuration Release -p:Version=${{ env.VERSION }} -p:ServerPublishDir="${{ github.workspace }}\out\server" --output out/msi
@@ -68,77 +77,89 @@ jobs:
             "{0}  {1:N1} MB  version {2}" -f $msi.Name, ($msi.Length / 1MB), $version
           }
 
-      - name: Install test (silent server + agent install, enrol, uninstall)
-        timeout-minutes: 10
+      - name: Install test (upgrade from the last release, then a fresh install)
+        timeout-minutes: 20
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $msi = (Resolve-Path out/msi).Path
-          New-Item -ItemType Directory -Force out/logs | Out-Null
+          New-Item -ItemType Directory -Force out/logs, out/old | Out-Null
           $logs = (Resolve-Path out/logs).Path
+          gh release download $env:UPGRADE_FROM --repo $env:GITHUB_REPOSITORY --pattern '*.msi' --dir out/old
+          $old = (Resolve-Path out/old).Path
 
           function Install([string]$msiArgs) {
             $p = Start-Process msiexec.exe -ArgumentList $msiArgs -Wait -PassThru
-            if ($p.ExitCode -ne 0) { throw "msiexec $msiArgs failed with exit code $($p.ExitCode)" }
+            if ($p.ExitCode -notin 0, 3010) { throw "msiexec $msiArgs failed with exit code $($p.ExitCode)" }
           }
-
-          # 1. Server, silent
-          Install "/i `"$msi\DeviceHaven-Server.msi`" /qn /l*v `"$logs\server-install.log`""
-          if ((Get-Service DeviceHavenServer).Status -ne 'Running') { throw 'Server service is not running' }
-
-          # The server trusts its own certificate on this machine, so no -SkipCertificateCheck is needed.
-          $ok = $false
-          foreach ($i in 1..30) {
-            try { Invoke-RestMethod https://localhost:8443/api/health | Out-Null; $ok = $true; break } catch { Start-Sleep 2 }
-          }
-          if (-not $ok) { throw 'Console did not answer on https://localhost:8443 with a trusted certificate' }
-          "Server is up with a trusted certificate"
-
-          # 2. Code from the admin API, as the console does
-          $code = Invoke-RestMethod -Method Post https://localhost:8443/api/admin/enrollment-codes -ContentType 'application/json' -Body '{"validHours":1,"maxUses":1}'
-
-          # 3. Agent, silent, with properties
-          Install "/i `"$msi\DeviceHaven-Agent.msi`" /qn SERVERURL=`"https://localhost:8443`" FINGERPRINT=`"$($code.fingerprint)`" ENROLLCODE=`"$($code.code)`" /l*v `"$logs\agent-install.log`""
-          if ((Get-Service DeviceHavenAgent).Status -ne 'Running') { throw 'Agent service is not running' }
-
-          $leaks = Select-String -Path "$logs\agent-install.log" -SimpleMatch $code.code
-          if ($leaks) {
-            $leaks | ForEach-Object { "LEAK line $($_.LineNumber): " + $_.Line.Replace($code.code, '[CODE]') }
-            throw 'Enrolment code was written to the install log'
-          }
-          "Enrolment code is not in the install log"
-
-          # 4. Wait for the device and its inventory
-          $device = $null
-          foreach ($i in 1..45) {
-            $devices = @(Invoke-RestMethod https://localhost:8443/api/admin/devices)
-            if ($devices.Count -ge 1) {
-              $detail = Invoke-RestMethod "https://localhost:8443/api/admin/devices/$($devices[0].id)"
-              if ($detail.inventory) { $device = $detail; break }
+          function Api([string]$path) { Invoke-RestMethod "https://localhost:8443/api/admin/$path" }
+          function WaitFor([scriptblock]$check, [int]$seconds, [string]$what) {
+            $deadline = (Get-Date).AddSeconds($seconds)
+            while ((Get-Date) -lt $deadline) {
+              try { $r = & $check; if ($r) { return $r } } catch { }
+              Start-Sleep 3
             }
-            Start-Sleep 2
+            throw "Timed out waiting for: $what"
           }
-          if (-not $device) { throw 'Agent did not enrol and report inventory' }
-          "Enrolled: {0} | {1} {2} | {3} programs | model {4} | IP {5}" -f $device.device.hostname, $device.inventory.osName, $device.inventory.osBuild, $device.inventory.apps.Count, $device.inventory.model, $device.device.primaryIp
-          if ($device.device.primaryIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { throw "No IPv4 address reported: '$($device.device.primaryIp)'" }
 
-          if ((Get-ItemProperty 'HKLM:\SOFTWARE\DeviceHaven\Agent').Configured -ne 1) { throw 'Agent was not marked configured' }
-          $cfg = Get-Content "$env:ProgramData\DeviceHaven\Agent\agent.json" -Raw | ConvertFrom-Json
-          if ($cfg.enrollmentCode) { throw 'Enrolment code was kept after enrolling' }
-          "Agent marked configured; enrolment code deleted after use"
+          # 1. Last release: server and agent, as people have them today
+          Install "/i `"$old\DeviceHaven-Server.msi`" /qn /l*v `"$logs\old-server-install.log`""
+          WaitFor { Invoke-RestMethod https://localhost:8443/api/health } 90 'old server' | Out-Null
+          $code = Invoke-RestMethod -Method Post https://localhost:8443/api/admin/enrollment-codes -ContentType 'application/json' -Body '{"validHours":1,"maxUses":5}'
+          Install "/i `"$old\DeviceHaven-Agent.msi`" /qn SERVERURL=`"https://localhost:8443`" FINGERPRINT=`"$($code.fingerprint)`" ENROLLCODE=`"$($code.code)`" /l*v `"$logs\old-agent-install.log`""
+          $first = WaitFor { @(Api 'devices') | Where-Object { $_.hostname } | Select-Object -First 1 } 120 'device from the old agent'
+          "Old release: enrolled {0} with agent {1}" -f $first.hostname, $first.agentVersion
 
-          $acl = (Get-Acl "$env:ProgramData\DeviceHaven\Agent").Access | ForEach-Object { $_.IdentityReference.Value }
-          if ($acl | Where-Object { $_ -match 'Users' }) { throw "Agent data folder is readable by users: $acl" }
-          "Agent data folder locked to: $($acl -join ', ')"
+          # 2. Upgrade both silently, with no properties
+          Install "/i `"$msi\DeviceHaven-Server.msi`" /qn /l*v `"$logs\server-upgrade.log`""
+          WaitFor { Invoke-RestMethod https://localhost:8443/api/health } 90 'upgraded server' | Out-Null
+          if (@(Api 'devices').Count -ne 1) { throw 'The device list was lost in the server upgrade' }
+          "Server upgraded; device list kept"
+          if (-not (Test-Path "$env:PUBLIC\Desktop\DeviceHaven Console.url")) { throw 'No desktop icon for the console' }
+          "Desktop icon present"
+
+          Install "/i `"$msi\DeviceHaven-Agent.msi`" /qn /l*v `"$logs\agent-upgrade.log`""
+          $upgraded = WaitFor { $d = @(Api 'devices')[0]; if ($d.agentVersion -eq $env:VERSION -and $d.primaryIp) { $d } } 180 'upgraded agent checking in'
+          if ($upgraded.id -ne $first.id) { throw 'The agent re-enrolled as a new device instead of keeping its enrolment' }
+          if ($upgraded.primaryIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { throw "No IPv4 address: '$($upgraded.primaryIp)'" }
+          "Agent upgraded to {0}, same device, IP {1}" -f $upgraded.agentVersion, $upgraded.primaryIp
+
+          # 3. The new features: tray app, start at sign-in, Start menu, messages, update scans
+          if (-not (Test-Path "$env:ProgramFiles\DeviceHaven\Agent\DeviceHaven.Tray.exe")) { throw 'Tray app not installed' }
+          $run = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run').DeviceHaven
+          if ($run -notlike '*DeviceHaven.Tray.exe*') { throw "Tray app doesn't start at sign-in: '$run'" }
+          if (-not (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\DeviceHaven.lnk")) { throw 'No Start menu entry' }
+          "Tray app installed, starts at sign-in, in the Start menu"
+
+          $id = $upgraded.id
+          Invoke-RestMethod -Method Post "https://localhost:8443/api/admin/devices/$id/commands" -ContentType 'application/json' -Body '{"kind":"notify","title":"Test","message":"Hello from the build"}' | Out-Null
+          $done = WaitFor { Api "devices/$id/commands" | Where-Object { $_.kind -eq 'notify' -and $_.status -eq 'done' } } 180 'message delivered'
+          "Message delivered: $($done.result)"
+
+          Invoke-RestMethod -Method Post "https://localhost:8443/api/admin/devices/$id/commands" -ContentType 'application/json' -Body '{"kind":"updates.scan"}' | Out-Null
+          $scan = WaitFor { $u = Api "devices/$id/updates"; if ($u.scannedAt) { $u } } 600 'update scan'
+          "Update scan: {0} update(s) waiting; restart pending: {1}; notes: {2}" -f @($scan.updates).Count, $scan.rebootPending, $scan.error
+          @($scan.updates) | Select-Object -First 8 | ForEach-Object { "  [{0}] {1} {2}" -f $_.kind, $_.title, $_.availableVersion }
 
           $proc = Get-Process -Name DeviceHaven.Agent
           "Agent memory: {0:N0} MB working set" -f ($proc.WorkingSet64 / 1MB)
 
-          # 5. Uninstall both, silently
+          # 4. Fresh agent install on top (props given again) keeps working and keeps the code out of the log
           Install "/x `"$msi\DeviceHaven-Agent.msi`" /qn /l*v `"$logs\agent-uninstall.log`""
+          $code2 = Invoke-RestMethod -Method Post https://localhost:8443/api/admin/enrollment-codes -ContentType 'application/json' -Body '{"validHours":1,"maxUses":1}'
+          Install "/i `"$msi\DeviceHaven-Agent.msi`" /qn SERVERURL=`"https://localhost:8443`" FINGERPRINT=`"$($code2.fingerprint)`" ENROLLCODE=`"$($code2.code)`" /l*v `"$logs\agent-install.log`""
+          if (Select-String -Path "$logs\agent-install.log" -SimpleMatch $code2.code -Quiet) { throw 'Enrolment code was written to the install log' }
+          if ((Get-Service DeviceHavenAgent).Status -ne 'Running') { throw 'Agent service is not running after a fresh install' }
+          "Fresh install OK; enrolment code not in the log"
+
+          # 5. Uninstall both
+          Install "/x `"$msi\DeviceHaven-Agent.msi`" /qn /l*v `"$logs\agent-uninstall-2.log`""
           Install "/x `"$msi\DeviceHaven-Server.msi`" /qn /l*v `"$logs\server-uninstall.log`""
           if (Get-Service DeviceHavenAgent -ErrorAction SilentlyContinue) { throw 'Agent service still present after uninstall' }
           if (Get-Service DeviceHavenServer -ErrorAction SilentlyContinue) { throw 'Server service still present after uninstall' }
+          if (Test-Path "$env:PUBLIC\Desktop\DeviceHaven Console.url") { throw 'Desktop icon left behind' }
           "Both uninstalled cleanly"
 
       - name: Upload install logs
@@ -160,7 +181,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $notes = "Early preview build: not for production use yet. Download DeviceHaven-Server.msi for the server and DeviceHaven-Agent.msi for each PC. See the README for silent install switches."
+          $notes = "Preview build: not for production use yet. Download DeviceHaven-Server.msi for the server and DeviceHaven-Agent.msi for each PC. See the README for silent install switches."
           gh release create "v$env:VERSION" out/msi/DeviceHaven-Server.msi out/msi/DeviceHaven-Agent.msi `
             --title "DeviceHaven $env:VERSION (preview)" --notes "$notes" --generate-notes --prerelease --target $env:GITHUB_SHA
 

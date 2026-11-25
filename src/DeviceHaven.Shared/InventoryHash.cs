@@ -30,6 +30,19 @@ public static class InventoryHash
         return Convert.ToHexString(SHA256.HashData(json));
     }
 
+    /// <summary>A hash of an update report, ignoring when it was scanned.</summary>
+    public static string Compute(UpdateReport report)
+    {
+        var stable = report with
+        {
+            ScannedAt = default,
+            Apps = report.Apps.OrderBy(a => a.Id, StringComparer.OrdinalIgnoreCase).ToList(),
+            Windows = report.Windows.OrderBy(w => w.UpdateId, StringComparer.OrdinalIgnoreCase).ToList(),
+        };
+        var json = JsonSerializer.SerializeToUtf8Bytes(stable, ProtocolJson.Default.UpdateReport);
+        return Convert.ToHexString(SHA256.HashData(json));
+    }
+
     // Free space changes constantly; only count whole-gigabyte changes.
     private static long RoundToGigabyte(long bytes) => bytes / 1_073_741_824L;
 }

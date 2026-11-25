@@ -19,11 +19,13 @@
     </div>
     <div class="nav">
       <a href="#console" data-view="console" class="active">Console</a>
+      <a href="#updates" data-view="updates">Updates <span id="nav-updates" class="badge" hidden></span></a>
+      <a href="#messages" data-view="messages">Messages &amp; restarts</a>
       <a href="#add" data-view="add">Add devices</a>
       <a href="#settings" data-view="settings">Agent settings</a>
       <a href="#audit" data-view="audit">Security &amp; audit</a>
       <div class="nav-soon" aria-label="Coming soon">
-        <span>Deploy</span><span>Patch</span><span>Policies</span><span>Remote</span>
+        <span>Policies</span><span>Remote</span><span>Imaging</span>
         <small>Coming in later stages</small>
       </div>
     </div>
@@ -57,7 +59,7 @@
         <div class="card stat"><div class="label">Devices</div><div class="value" id="s-total">–</div></div>
         <div class="card stat"><div class="label">Online</div><div class="value" id="s-online">–</div><div class="note ok" id="s-online-note"></div></div>
         <div class="card stat"><div class="label">Offline</div><div class="value" id="s-offline">–</div><div class="note warn" id="s-offline-note"></div></div>
-        <div class="card stat"><div class="label">Check-in every</div><div class="value" id="s-checkin">–</div><div class="note" id="s-checkin-note"></div></div>
+        <div class="card stat"><div class="label">Updates waiting</div><div class="value" id="s-updates">–</div><div class="note" id="s-updates-note"></div></div>
       </div>
       <div class="card">
         <div class="card-head">
@@ -71,6 +73,64 @@
           </table>
         </div>
         <p id="empty" class="empty" hidden>No devices yet. Choose <a href="#add">Add devices</a> to get started.</p>
+      </div>
+    </section>
+
+    <!-- Updates -->
+    <section id="view-updates" class="view" hidden>
+      <div class="toolbar">
+        <p class="muted">Nothing installs until you approve it. Approved updates install at the PC's next check-in, and users are told when they're done.</p>
+        <button type="button" class="btn" id="scan-all">Scan all PCs now</button>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>App updates <span class="muted small">(winget)</span></h2>
+          <button type="button" class="btn small primary" id="approve-all-apps" hidden>Approve all app updates</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>App</th><th>Update to</th><th>PCs</th><th>Status</th><th></th></tr></thead>
+          <tbody id="app-updates"></tbody>
+        </table></div>
+        <p id="no-app-updates" class="empty" hidden>All apps are up to date.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Windows updates</h2>
+          <button type="button" class="btn small primary" id="approve-all-windows" hidden>Approve all Windows updates</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Update</th><th>KB</th><th>Severity</th><th>PCs</th><th>Status</th><th></th></tr></thead>
+          <tbody id="windows-updates"></tbody>
+        </table></div>
+        <p id="no-windows-updates" class="empty" hidden>Windows is up to date on every PC.</p>
+      </div>
+    </section>
+
+    <!-- Messages and restarts -->
+    <section id="view-messages" class="view" hidden>
+      <div class="grid2">
+        <form class="card pad" id="message-form">
+          <h2>Send a message</h2>
+          <p class="muted">Pops up by the clock on every PC you pick, from the DeviceHaven tray icon.</p>
+          <label>Title <input type="text" id="msg-title" maxlength="80" placeholder="Message from IT"></label>
+          <label>Message <textarea id="msg-body" maxlength="500" rows="4" required placeholder="e.g. The office internet will be down tonight from 9 to 10 pm."></textarea></label>
+          <fieldset class="targets"><legend>Send to</legend><div id="msg-targets"></div></fieldset>
+          <button type="submit" class="btn primary">Send message</button>
+          <span id="msg-sent" class="ok" hidden></span>
+        </form>
+        <form class="card pad" id="restart-form">
+          <h2>Ask PCs to restart</h2>
+          <p class="muted">Users get a notice with Restart now or Later. At the deadline the PC restarts by itself, with a 10-minute warning.</p>
+          <label>Restart deadline
+            <select id="restart-within">
+              <option value="30">30 minutes</option>
+              <option value="120">2 hours</option>
+              <option value="240" selected>4 hours</option>
+              <option value="480">8 hours</option>
+              <option value="1440">24 hours</option>
+            </select>
+          </label>
+          <label>Reason (optional) <input type="text" id="restart-reason" maxlength="200" placeholder="e.g. New drivers were installed."></label>
+          <fieldset class="targets"><legend>Restart</legend><div id="restart-targets"></div></fieldset>
+          <button type="submit" class="btn primary">Request restart</button>
+          <span id="restart-sent" class="ok" hidden></span>
+        </form>
       </div>
     </section>
 
@@ -127,8 +187,16 @@
           <small>30 seconds to 86,400 (once a day)</small>
         </label>
         <label>Full inventory scan every (minutes)
-          <input type="number" id="set-inventory" min="60" max="10080" required>
-          <small>60 (hourly) to 10,080 (weekly). Only changes are sent.</small>
+          <input type="number" id="set-inventory" min="15" max="10080" required>
+          <small>15 to 10,080 (weekly). Only changes are sent.</small>
+        </label>
+        <label>Look for app and Windows updates every (hours)
+          <input type="number" id="set-updatescan" min="1" max="72" required>
+          <small>1 to 72. You can also scan any PC on demand.</small>
+        </label>
+        <label>Restart deadline after updates (hours)
+          <input type="number" id="set-restart" min="1" max="168" required>
+          <small>When installed updates need a restart, users have this long before the PC restarts itself.</small>
         </label>
         <label>Random spread (%)
           <input type="number" id="set-jitter" min="0" max="50" required>

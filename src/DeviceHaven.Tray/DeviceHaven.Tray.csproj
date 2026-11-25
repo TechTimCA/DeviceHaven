@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The tray app by the clock. Plain Windows APIs and compiled ahead of time
+    to native code (Native AOT): a few MB on disk and in memory, no .NET to install.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>DeviceHaven.Tray</RootNamespace>
+    <AssemblyName>DeviceHaven.Tray</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>..\..\assets\icons\DeviceHaven-Agent-Icon.ico</ApplicationIcon>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <NoWarn>$(NoWarn);CA1416;CA1806;CA1838;CA2101;SYSLIB1054</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DeviceHaven.Shared\DeviceHaven.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

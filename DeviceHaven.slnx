@@ -3,6 +3,7 @@
     <Project Path="src/DeviceHaven.Agent/DeviceHaven.Agent.csproj" />
     <Project Path="src/DeviceHaven.Server/DeviceHaven.Server.csproj" />
     <Project Path="src/DeviceHaven.Shared/DeviceHaven.Shared.csproj" />
+    <Project Path="src/DeviceHaven.Tray/DeviceHaven.Tray.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DeviceHaven.Server.Tests/DeviceHaven.Server.Tests.csproj" />

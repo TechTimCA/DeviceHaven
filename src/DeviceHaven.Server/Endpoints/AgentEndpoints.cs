@@ -53,11 +53,24 @@ public static class AgentEndpoints
             store.RecordCheckIn(device.Id, request.AgentVersion, ClientIp(http),
                 request.Inventory, storedHash);
 
-            // Ask for a full inventory if the server doesn't hold the version the agent has.
+            if (request.Results is { Count: > 0 })
+                store.RecordResults(device.Id, request.Results);
+
+            string? updatesHash = device.UpdatesHash;
+            if (request.Updates is not null)
+            {
+                updatesHash = InventoryHash.Compute(request.Updates);
+                store.SaveUpdateReport(device.Id, request.Updates, updatesHash);
+            }
+
+            // Ask for a full inventory or update list if the server doesn't hold the version the agent has.
             var inventoryRequested = request.InventoryHash is not null
                 && !string.Equals(request.InventoryHash, storedHash, StringComparison.OrdinalIgnoreCase);
+            var updatesRequested = request.UpdatesHash is not null
+                && !string.Equals(request.UpdatesHash, updatesHash, StringComparison.OrdinalIgnoreCase);
 
-            return Results.Ok(new CheckInResponse(store.GetAgentSettings(), inventoryRequested, []));
+            return Results.Ok(new CheckInResponse(store.GetAgentSettings(), inventoryRequested,
+                store.TakePendingCommands(device.Id), updatesRequested));
         }).WithMetadata(new RequestSizeLimitAttribute(MaxCheckInBytes));
     }
 

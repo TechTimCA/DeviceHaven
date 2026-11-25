@@ -22,10 +22,10 @@ public sealed record DeviceDetail(DeviceSummary Device, InventorySnapshot? Inven
 
 public sealed record AuditEntry(long Id, DateTimeOffset At, string Actor, string Action, string? Target, string? Detail);
 
-public sealed record DeviceAuth(Guid Id, string Hostname, string? InventoryHash);
+public sealed record DeviceAuth(Guid Id, string Hostname, string? InventoryHash, string? UpdatesHash);
 
 /// <summary>All database reads and writes, kept in one place and parameterised throughout.</summary>
-public sealed class Store
+public sealed partial class Store
 {
     private readonly Database _db;
     private readonly TimeProvider _time;
@@ -36,7 +36,8 @@ public sealed class Store
         _time = time;
     }
 
-    private string Now => _time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture);
+    internal string Now => _time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture);
+    internal Database Db => _db;
 
     // ---------- Enrolment codes ----------
 
@@ -114,12 +115,12 @@ public sealed class Store
         if (!Secrets.TryParseDeviceToken(bearerToken, out var id, out var secret)) return null;
         using var c = _db.Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT token_hash, hostname, inventory_hash FROM devices WHERE id = $id AND revoked = 0";
+        cmd.CommandText = "SELECT token_hash, hostname, inventory_hash, updates_hash FROM devices WHERE id = $id AND revoked = 0";
         cmd.Parameters.AddWithValue("$id", id.ToString());
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
         return Secrets.HashMatches(secret, r.GetString(0))
-            ? new DeviceAuth(id, r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2))
+            ? new DeviceAuth(id, r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3))
             : null;
     }
 
@@ -255,10 +256,10 @@ public sealed class Store
 
     // ---------- Helpers ----------
 
-    private static DateTimeOffset? ParseDate(SqliteDataReader r, int i) =>
+    internal static DateTimeOffset? ParseDate(SqliteDataReader r, int i) =>
         r.IsDBNull(i) ? null : DateTimeOffset.Parse(r.GetString(i), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
-    private static string Clip(string? value, int max)
+    internal static string Clip(string? value, int max)
     {
         var v = (value ?? "").Trim();
         return v.Length <= max ? v : v[..max];

@@ -87,6 +87,49 @@ public sealed class Database
             CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
             BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
 
+            CREATE TABLE IF NOT EXISTS commands (
+                id            TEXT PRIMARY KEY,
+                device_id     TEXT NOT NULL,
+                kind          TEXT NOT NULL,
+                payload       TEXT,
+                status        TEXT NOT NULL,          -- pending, sent, done, failed
+                created_at    TEXT NOT NULL,
+                created_by    TEXT NOT NULL,
+                sent_at       TEXT,
+                completed_at  TEXT,
+                result        TEXT
+            );
+            CREATE INDEX IF NOT EXISTS commands_device ON commands (device_id, status);
+
+            -- What each PC reported as waiting, replaced on every new report.
+            CREATE TABLE IF NOT EXISTS device_updates (
+                device_id          TEXT NOT NULL,
+                kind               TEXT NOT NULL,     -- app or windows
+                key                TEXT NOT NULL,     -- winget id or Windows update id
+                title              TEXT NOT NULL,
+                current_version    TEXT,
+                available_version  TEXT,
+                severity           TEXT,
+                kb                 TEXT,
+                size_bytes         INTEGER,
+                may_restart        INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (device_id, kind, key)
+            );
+
+            -- Your approvals, and how each install went.
+            CREATE TABLE IF NOT EXISTS update_approvals (
+                device_id     TEXT NOT NULL,
+                kind          TEXT NOT NULL,
+                key           TEXT NOT NULL,
+                command_id    TEXT NOT NULL,
+                status        TEXT NOT NULL,          -- approved, installed, failed
+                message       TEXT,
+                approved_at   TEXT NOT NULL,
+                approved_by   TEXT NOT NULL,
+                completed_at  TEXT,
+                PRIMARY KEY (device_id, kind, key)
+            );
+
             INSERT INTO schema_info (version)
             SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
             """;
@@ -94,6 +137,12 @@ public sealed class Database
 
         // Version 0.1.9: devices.primary_ip (the PC's own main IPv4 address).
         AddColumnIfMissing(connection, "devices", "primary_ip", "TEXT");
+
+        // Version 0.2: update reports.
+        AddColumnIfMissing(connection, "devices", "updates_hash", "TEXT");
+        AddColumnIfMissing(connection, "devices", "updates_at", "TEXT");
+        AddColumnIfMissing(connection, "devices", "reboot_pending", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "devices", "updates_error", "TEXT");
     }
 
     private static void AddColumnIfMissing(Microsoft.Data.Sqlite.SqliteConnection connection, string table, string column, string type)

@@ -37,15 +37,80 @@ public sealed record CheckInRequest(
     string AgentVersion,
     DateTimeOffset AgentTime,
     string? InventoryHash,
-    InventorySnapshot? Inventory);
+    InventorySnapshot? Inventory,
+    IReadOnlyList<CommandResult>? Results = null,
+    string? UpdatesHash = null,
+    UpdateReport? Updates = null);
 
 public sealed record CheckInResponse(
     AgentSettings Settings,
     bool InventoryRequested,
-    IReadOnlyList<AgentCommand> Commands);
+    IReadOnlyList<AgentCommand> Commands,
+    bool UpdatesRequested = false);
 
-/// <summary>Placeholder for stage 2+ jobs (install software, run script, ...).</summary>
+/// <summary>
+/// A job the server asks the agent to do. Only the kinds in
+/// <see cref="CommandKinds"/> exist; the agent ignores anything else.
+/// </summary>
 public sealed record AgentCommand(Guid Id, string Kind, string? PayloadJson);
+
+public static class CommandKinds
+{
+    public const string ScanInventory = "inventory.scan";
+    public const string ScanUpdates = "updates.scan";
+    public const string InstallAppUpdates = "apps.upgrade";
+    public const string InstallWindowsUpdates = "windows.install";
+    public const string Notify = "notify";
+    public const string RequestRestart = "restart.request";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        ScanInventory, ScanUpdates, InstallAppUpdates, InstallWindowsUpdates, Notify, RequestRestart,
+    };
+}
+
+/// <summary>Payloads, one per command kind.</summary>
+public sealed record InstallUpdatesPayload(IReadOnlyList<string> Keys);
+public sealed record NotifyPayload(string Title, string Message);
+public sealed record RestartPayload(int DeadlineMinutes, string? Reason);
+
+/// <summary>What happened when the agent ran a command.</summary>
+public sealed record CommandResult(
+    Guid Id,
+    bool Success,
+    string? Message,
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<ItemResult>? Items = null);
+
+/// <summary>The outcome for one update inside an install command.</summary>
+public sealed record ItemResult(string Key, bool Success, string? Message);
+
+/// <summary>Updates waiting on a PC: apps through winget, and Windows Update.</summary>
+public sealed record UpdateReport(
+    IReadOnlyList<AppUpdate> Apps,
+    IReadOnlyList<WindowsUpdate> Windows,
+    DateTimeOffset ScannedAt,
+    bool RebootPending,
+    string? AppScanError = null,
+    string? WindowsScanError = null);
+
+/// <summary>An app with a newer version available. <see cref="Id"/> is the winget package id.</summary>
+public sealed record AppUpdate(string Id, string Name, string CurrentVersion, string AvailableVersion, string? Source);
+
+public sealed record WindowsUpdate(
+    string UpdateId,
+    string Title,
+    string? Kb,
+    string? Severity,
+    IReadOnlyList<string> Categories,
+    long? SizeBytes,
+    bool MayRequireRestart);
+
+public static class UpdateKinds
+{
+    public const string App = "app";
+    public const string Windows = "windows";
+}
 
 /// <summary>
 /// Settings an admin controls from the dashboard, for all devices, a group or
@@ -57,17 +122,21 @@ public sealed record AgentSettings(
     int InventoryMinutes,
     int JitterPercent,
     bool LiveConnection,
-    bool ShowTrayIcon)
+    bool ShowTrayIcon,
+    int UpdateScanHours = AgentSettings.DefaultUpdateScanHours,
+    int RestartDeadlineHours = AgentSettings.DefaultRestartDeadlineHours)
 {
     public const int MinCheckInSeconds = 30;
     public const int MaxCheckInSeconds = 86_400;      // once a day
-    public const int MinInventoryMinutes = 60;        // hourly
+    public const int MinInventoryMinutes = 15;
     public const int MaxInventoryMinutes = 10_080;    // weekly
     public const int MaxJitterPercent = 50;
+    public const int DefaultUpdateScanHours = 4;
+    public const int DefaultRestartDeadlineHours = 24;
 
     public static AgentSettings Default { get; } = new(
-        CheckInSeconds: 300,
-        InventoryMinutes: 1_440,
+        CheckInSeconds: 60,
+        InventoryMinutes: 60,
         JitterPercent: 10,
         LiveConnection: false,
         ShowTrayIcon: true);
@@ -77,6 +146,8 @@ public sealed record AgentSettings(
         CheckInSeconds = Math.Clamp(CheckInSeconds, MinCheckInSeconds, MaxCheckInSeconds),
         InventoryMinutes = Math.Clamp(InventoryMinutes, MinInventoryMinutes, MaxInventoryMinutes),
         JitterPercent = Math.Clamp(JitterPercent, 0, MaxJitterPercent),
+        UpdateScanHours = Math.Clamp(UpdateScanHours <= 0 ? DefaultUpdateScanHours : UpdateScanHours, 1, 72),
+        RestartDeadlineHours = Math.Clamp(RestartDeadlineHours <= 0 ? DefaultRestartDeadlineHours : RestartDeadlineHours, 1, 168),
     };
 
     /// <summary>
@@ -144,4 +215,10 @@ public sealed record ApiError(string Code, string Message);
 [JsonSerializable(typeof(AgentSettings))]
 [JsonSerializable(typeof(InventorySnapshot))]
 [JsonSerializable(typeof(ApiError))]
+[JsonSerializable(typeof(UpdateReport))]
+[JsonSerializable(typeof(InstallUpdatesPayload))]
+[JsonSerializable(typeof(NotifyPayload))]
+[JsonSerializable(typeof(RestartPayload))]
+[JsonSerializable(typeof(CommandResult))]
+[JsonSerializable(typeof(List<CommandResult>))]
 public sealed partial class ProtocolJson : JsonSerializerContext;

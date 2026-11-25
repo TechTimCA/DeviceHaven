@@ -5,7 +5,7 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const state = { devices: [], settings: null, server: null };
+  const state = { devices: [], settings: null, server: null, updates: [] };
 
   // ---------- Helpers ----------
 
@@ -15,10 +15,15 @@
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
     if (res.status === 403) {
-      showNotice('The console only works when opened on the server itself (https://localhost) until admin sign-in is added.');
+      showNotice('The console only works when opened on the server itself (https://localhost) until admin sign-in is added.', true);
       throw new Error('forbidden');
     }
-    if (!res.ok && res.status !== 204) throw new Error(`Request failed: ${res.status}`);
+    if (!res.ok && res.status !== 204) {
+      let message = `Request failed (${res.status})`;
+      try { message = (await res.json()).message || message; } catch { /* not JSON */ }
+      showNotice(message);
+      throw new Error(message);
+    }
     return res.status === 204 ? null : res.json();
   }
 
@@ -36,7 +41,14 @@
     return node;
   }
 
-  function showNotice(text) { const n = $('notice'); n.textContent = text; n.hidden = false; }
+  let noticeTimer;
+  function showNotice(text, sticky = false) {
+    const n = $('notice');
+    n.textContent = text;
+    n.hidden = false;
+    clearTimeout(noticeTimer);
+    if (!sticky) noticeTimer = setTimeout(() => { n.hidden = true; }, 7000);
+  }
 
   function ago(iso) {
     if (!iso) return 'Never';
@@ -63,6 +75,8 @@
 
   const titles = {
     console: ['Console', 'Every device on your network at a glance'],
+    updates: ['Updates', 'App and Windows updates waiting on your PCs'],
+    messages: ['Messages & restarts', 'Tell users something, or ask PCs to restart'],
     add: ['Add devices', 'Create a code, then install the agent with the MSI'],
     settings: ['Agent settings', 'How often agents check in and report'],
     audit: ['Security & audit', 'Everything that changed, and the server\'s identity'],
@@ -76,6 +90,8 @@
     $('subtitle').textContent = titles[view][1];
     if (view === 'audit') loadAudit();
     if (view === 'settings') fillSettings();
+    if (view === 'updates') loadUpdates();
+    if (view === 'messages') fillTargets();
   }
 
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
@@ -84,7 +100,8 @@
 
   async function loadDevices() {
     try {
-      [state.devices, state.settings, state.server] = await Promise.all([api('devices'), api('settings/agent'), api('server')]);
+      [state.devices, state.settings, state.server, state.updates] =
+        await Promise.all([api('devices'), api('settings/agent'), api('server'), api('updates')]);
     } catch { return; }
     $('version').textContent = `v${state.server.version}`;
     renderDevices();
@@ -98,9 +115,12 @@
     $('s-offline').textContent = active.length - online;
     $('s-online-note').textContent = active.length ? `${Math.round((online / active.length) * 100)}% of devices` : '';
     $('s-offline-note').textContent = active.length - online ? 'Not checked in recently' : '';
-    const every = state.settings.checkInSeconds;
-    $('s-checkin').textContent = every >= 3600 ? `${Math.round(every / 3600)} h` : every >= 60 ? `${Math.round(every / 60)} min` : `${every} s`;
-    $('s-checkin-note').textContent = `±${state.settings.jitterPercent}% spread`;
+    const waiting = state.updates.length;
+    const pcs = new Set(state.updates.flatMap((u) => u.devices.map((d) => d.id))).size;
+    $('s-updates').textContent = waiting;
+    $('s-updates-note').textContent = waiting ? `On ${pcs} PC${pcs === 1 ? '' : 's'}` : 'All up to date';
+    $('nav-updates').textContent = waiting;
+    $('nav-updates').hidden = waiting === 0;
 
     const term = $('search').value.trim().toLowerCase();
     const rows = active.filter((d) => !term || `${d.hostname} ${d.osName} ${d.primaryIp ?? ''} ${d.lastIp ?? ''}`.toLowerCase().includes(term));
@@ -121,10 +141,116 @@
 
   $('search').addEventListener('input', renderDevices);
 
+  // ---------- Updates ----------
+
+  function statusPill(devices) {
+    const approved = devices.filter((d) => d.approvalStatus === 'approved').length;
+    const failed = devices.filter((d) => d.approvalStatus === 'failed');
+    if (failed.length) return el('span', { class: 'pill failed', title: failed.map((d) => `${d.hostname}: ${d.approvalMessage ?? ''}`).join('\n') }, `Failed on ${failed.length}`);
+    if (approved === devices.length) return el('span', { class: 'pill approved' }, 'Approved, installing');
+    if (approved) return el('span', { class: 'pill approved' }, `Approved on ${approved}`);
+    return el('span', { class: 'pill' }, 'Waiting for you');
+  }
+
+  function severityPill(severity) {
+    if (!severity) return '–';
+    return el('span', { class: `pill ${severity.toLowerCase()}` }, severity);
+  }
+
+  async function approve(items) {
+    const r = await api('updates/approve', { method: 'POST', body: JSON.stringify({ items }) });
+    showNotice(r.installs ? `Approved ${r.installs} install${r.installs === 1 ? '' : 's'}. They start at each PC's next check-in.` : 'Those updates were already approved.');
+    await loadDevices();
+    loadUpdates();
+  }
+
+  async function loadUpdates() {
+    state.updates = await api('updates');
+    const apps = state.updates.filter((u) => u.kind === 'app');
+    const wins = state.updates.filter((u) => u.kind === 'windows');
+    const devicesCell = (u) => el('td', { title: u.devices.map((d) => d.hostname).join(', ') },
+      u.devices.length === 1 ? u.devices[0].hostname : `${u.devices.length} PCs`);
+    const approveBtn = (u) => u.devices.every((d) => d.approvalStatus === 'approved') ? '' :
+      el('button', { type: 'button', class: 'btn small', onclick: () => approve([{ kind: u.kind, key: u.key }]) }, 'Approve');
+
+    $('app-updates').replaceChildren(...apps.map((u) => el('tr', {},
+      el('td', { class: 'name' }, u.title),
+      el('td', {}, `${u.devices[0]?.currentVersion ?? '?'} → ${u.availableVersion ?? '?'}`),
+      devicesCell(u), el('td', {}, statusPill(u.devices)), el('td', {}, approveBtn(u)))));
+    $('windows-updates').replaceChildren(...wins.map((u) => el('tr', {},
+      el('td', { class: 'name' }, u.title), el('td', {}, u.kb ?? '–'), el('td', {}, severityPill(u.severity)),
+      devicesCell(u), el('td', {}, statusPill(u.devices)), el('td', {}, approveBtn(u)))));
+
+    $('no-app-updates').hidden = apps.length > 0;
+    $('no-windows-updates').hidden = wins.length > 0;
+    const pendingApps = apps.filter((u) => u.devices.some((d) => d.approvalStatus !== 'approved'));
+    const pendingWins = wins.filter((u) => u.devices.some((d) => d.approvalStatus !== 'approved'));
+    $('approve-all-apps').hidden = pendingApps.length < 2;
+    $('approve-all-windows').hidden = pendingWins.length < 2;
+    $('approve-all-apps').onclick = () => approve(pendingApps.map((u) => ({ kind: u.kind, key: u.key })));
+    $('approve-all-windows').onclick = () => approve(pendingWins.map((u) => ({ kind: u.kind, key: u.key })));
+  }
+
+  $('scan-all').addEventListener('click', async () => {
+    const r = await api('commands/broadcast', { method: 'POST', body: JSON.stringify({ kind: 'updates.scan' }) });
+    showNotice(`Asked ${r.devices} PC${r.devices === 1 ? '' : 's'} to look for updates. Results appear here within a few minutes.`);
+  });
+
+  // ---------- Messages and restarts ----------
+
+  function fillTargets() {
+    for (const id of ['msg-targets', 'restart-targets']) {
+      const active = state.devices.filter((d) => !d.revoked);
+      $(id).replaceChildren(
+        el('label', {}, el('input', { type: 'checkbox', value: 'all', checked: 'checked', 'data-all': '1' }), `All devices (${active.length})`),
+        ...active.map((d) => el('label', {}, el('input', { type: 'checkbox', value: d.id }), d.hostname)));
+    }
+  }
+
+  function chosenDevices(containerId) {
+    const boxes = [...$(containerId).querySelectorAll('input[type=checkbox]')];
+    if (boxes.find((b) => b.dataset.all)?.checked) return null;   // all
+    return boxes.filter((b) => b.checked && !b.dataset.all).map((b) => b.value);
+  }
+
+  $('message-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const deviceIds = chosenDevices('msg-targets');
+    if (deviceIds && deviceIds.length === 0) { showNotice('Pick at least one PC.'); return; }
+    const r = await api('commands/broadcast', { method: 'POST', body: JSON.stringify({
+      kind: 'notify', title: $('msg-title').value.trim() || null, message: $('msg-body').value.trim(), deviceIds }) });
+    $('msg-sent').textContent = `Sent to ${r.devices} PC${r.devices === 1 ? '' : 's'}`;
+    $('msg-sent').hidden = false;
+    $('msg-body').value = '';
+    setTimeout(() => { $('msg-sent').hidden = true; }, 4000);
+  });
+
+  $('restart-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const deviceIds = chosenDevices('restart-targets');
+    if (deviceIds && deviceIds.length === 0) { showNotice('Pick at least one PC.'); return; }
+    const r = await api('commands/broadcast', { method: 'POST', body: JSON.stringify({
+      kind: 'restart.request', deadlineMinutes: Number($('restart-within').value), message: $('restart-reason').value.trim() || null, deviceIds }) });
+    $('restart-sent').textContent = `Restart requested on ${r.devices} PC${r.devices === 1 ? '' : 's'}`;
+    $('restart-sent').hidden = false;
+    setTimeout(() => { $('restart-sent').hidden = true; }, 4000);
+  });
+
   // ---------- Device details ----------
 
+  async function sendCommand(id, body, doneText) {
+    await api(`devices/${id}/commands`, { method: 'POST', body: JSON.stringify(body) });
+    showNotice(doneText);
+    openDevice(id);
+  }
+
+  const jobNames = {
+    'inventory.scan': 'Scan inventory', 'updates.scan': 'Look for updates', 'apps.upgrade': 'Install app updates',
+    'windows.install': 'Install Windows updates', 'notify': 'Message', 'restart.request': 'Restart request',
+  };
+
   async function openDevice(id) {
-    const detail = await api(`devices/${id}`);
+    const [detail, upd, jobs] = await Promise.all([api(`devices/${id}`), api(`devices/${id}/updates`), api(`devices/${id}/commands`)]);
     const d = detail.device;
     const inv = detail.inventory;
     $('d-name').textContent = d.hostname;
@@ -146,6 +272,50 @@
         fact('Connected from', d.lastIp),
         fact('Inventory updated', detail.inventoryAt ? ago(detail.inventoryAt) : 'Not yet')),
     ];
+    // Actions
+    const msgInput = el('input', { type: 'text', maxlength: '500', placeholder: 'Message to show on this PC' });
+    const restartSelect = el('select', {}, ...[['30', '30 minutes'], ['120', '2 hours'], ['240', '4 hours'], ['1440', '24 hours']]
+      .map(([v, t]) => el('option', v === '240' ? { value: v, selected: 'selected' } : { value: v }, t)));
+    parts.push(el('div', { class: 'actions' },
+      el('button', { type: 'button', class: 'btn small', onclick: async () => {
+        await api(`devices/${id}/commands`, { method: 'POST', body: JSON.stringify({ kind: 'inventory.scan' }) });
+        sendCommand(id, { kind: 'updates.scan' }, `${d.hostname} will rescan at its next check-in (within ${state.settings.checkInSeconds} seconds).`);
+      } }, 'Scan now'),
+    ));
+    parts.push(el('div', { class: 'inline-form' }, msgInput,
+      el('button', { type: 'button', class: 'btn small', onclick: () => {
+        if (!msgInput.value.trim()) return;
+        sendCommand(id, { kind: 'notify', message: msgInput.value.trim() }, `Message sent to ${d.hostname}.`);
+      } }, 'Send message')));
+    parts.push(el('div', { class: 'inline-form' }, el('span', {}, 'Restart within'), restartSelect,
+      el('button', { type: 'button', class: 'btn small', onclick: () =>
+        sendCommand(id, { kind: 'restart.request', deadlineMinutes: Number(restartSelect.value) }, `Restart requested on ${d.hostname}.`) }, 'Request restart')));
+
+    // Updates
+    parts.push(el('h3', {}, `Updates waiting (${upd.updates.length})`));
+    if (upd.rebootPending) parts.push(el('div', { class: 'callout warn' }, 'Windows says this PC needs a restart to finish installing updates.'));
+    if (upd.error) parts.push(el('div', { class: 'callout warn' }, upd.error));
+    parts.push(el('p', { class: 'muted small' }, upd.scannedAt ? `Last checked ${ago(upd.scannedAt)}` : 'Not checked yet. Choose Scan now.'));
+    if (upd.updates.length) {
+      const waiting = upd.updates.filter((u) => u.approvalStatus !== 'approved');
+      if (waiting.length > 1) parts.push(el('div', {}, el('button', { type: 'button', class: 'btn small primary', onclick: async () => {
+        await approve(waiting.map((u) => ({ kind: u.kind, key: u.key, deviceIds: [id] })));
+        openDevice(id);
+      } }, `Approve all ${waiting.length}`)));
+      parts.push(el('div', { class: 'table-wrap' }, el('table', {},
+        el('thead', {}, el('tr', {}, el('th', {}, 'Update'), el('th', {}, 'Type'), el('th', {}, 'Details'), el('th', {}, 'Status'), el('th', {}, ''))),
+        el('tbody', {}, ...upd.updates.map((u) => el('tr', {},
+          el('td', { class: 'name' }, u.title),
+          el('td', {}, u.kind === 'app' ? 'App' : 'Windows'),
+          el('td', {}, u.kind === 'app' ? `${u.currentVersion ?? '?'} → ${u.availableVersion ?? '?'}` : [u.kb, u.severity].filter(Boolean).join(' · ') || '–'),
+          el('td', {}, u.approvalStatus === 'approved' ? el('span', { class: 'pill approved' }, 'Approved')
+            : u.approvalStatus === 'failed' ? el('span', { class: 'pill failed', title: u.approvalMessage ?? '' }, 'Failed') : el('span', { class: 'pill' }, 'Waiting')),
+          el('td', {}, u.approvalStatus === 'approved' ? '' : el('button', { type: 'button', class: 'btn small', onclick: async () => {
+            await approve([{ kind: u.kind, key: u.key, deviceIds: [id] }]);
+            openDevice(id);
+          } }, 'Approve'))))))));
+    }
+
     if (inv) {
       parts.push(el('h3', {}, 'Disks'));
       parts.push(el('div', { class: 'table-wrap' }, el('table', {},
@@ -167,6 +337,15 @@
         el('thead', {}, el('tr', {}, el('th', {}, 'Name'), el('th', {}, 'Version'), el('th', {}, 'Publisher'))),
         el('tbody', {}, ...inv.apps.map((a) => el('tr', {},
           el('td', {}, a.name), el('td', {}, a.version ?? '–'), el('td', {}, a.publisher ?? '–')))))));
+    }
+    if (jobs.length) {
+      parts.push(el('h3', {}, 'Recent jobs'));
+      parts.push(el('div', { class: 'table-wrap' }, el('table', {},
+        el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Job'), el('th', {}, 'Status'), el('th', {}, 'Result'))),
+        el('tbody', {}, ...jobs.slice(0, 15).map((j) => el('tr', {},
+          el('td', {}, ago(j.createdAt)), el('td', {}, jobNames[j.kind] ?? j.kind),
+          el('td', {}, { pending: 'Waiting for check-in', sent: 'Running', done: 'Done', failed: 'Failed' }[j.status] ?? j.status),
+          el('td', {}, j.result ?? '')))))));
     }
     parts.push(el('div', {}, el('button', { type: 'button', class: 'btn danger', onclick: () => removeDevice(d) }, 'Remove device')));
     $('d-body').replaceChildren(...parts);
@@ -216,6 +395,8 @@
     $('set-checkin').value = state.settings.checkInSeconds;
     $('set-inventory').value = state.settings.inventoryMinutes;
     $('set-jitter').value = state.settings.jitterPercent;
+    $('set-updatescan').value = state.settings.updateScanHours;
+    $('set-restart').value = state.settings.restartDeadlineHours;
     $('set-tray').checked = state.settings.showTrayIcon;
   }
 
@@ -228,6 +409,8 @@
         checkInSeconds: Number($('set-checkin').value),
         inventoryMinutes: Number($('set-inventory').value),
         jitterPercent: Number($('set-jitter').value),
+        updateScanHours: Number($('set-updatescan').value),
+        restartDeadlineHours: Number($('set-restart').value),
         showTrayIcon: $('set-tray').checked,
       }),
     });
