@@ -83,6 +83,9 @@
   </Package>
 
   <Fragment>
+    <!-- Close the tray app during upgrades and uninstalls so its file can be replaced. -->
+    <util:CloseApplication Id="CloseTray" Target="DeviceHaven.Tray.exe" CloseMessage="no" TerminateProcess="0" RebootPrompt="no" />
+
     <ComponentGroup Id="AgentComponents">
 
       <Component Id="AgentExe" Directory="INSTALLFOLDER" Bitness="always64">
@@ -112,7 +115,6 @@
         <File Id="TrayExeFile" Source="$(var.AgentDir)\DeviceHaven.Tray.exe" KeyPath="yes" />
         <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="DeviceHaven"
                        Type="string" Value="&quot;[#TrayExeFile]&quot;" />
-        <util:CloseApplication Id="CloseTray" Target="DeviceHaven.Tray.exe" CloseMessage="no" TerminateProcess="0" RebootPrompt="no" />
       </Component>
 
       <Component Id="TrayStartMenu" Directory="ProgramMenuFolder" Bitness="always64"
