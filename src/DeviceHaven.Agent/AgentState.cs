@@ -46,6 +46,35 @@ public sealed class AgentStore
     {
         _dir = directory ?? DefaultDirectory();
         Directory.CreateDirectory(_dir);
+        if (OperatingSystem.IsWindows() && directory is null) LockDown(_dir);
+    }
+
+    /// <summary>
+    /// Only SYSTEM and Administrators may open the agent's folder. (ProgramData
+    /// normally lets every user read, so the defaults aren't good enough.)
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static void LockDown(string path)
+    {
+        try
+        {
+            var security = new System.Security.AccessControl.DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            foreach (var sid in new[] { System.Security.Principal.WellKnownSidType.LocalSystemSid, System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid })
+            {
+                security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                    new System.Security.Principal.SecurityIdentifier(sid, null),
+                    System.Security.AccessControl.FileSystemRights.FullControl,
+                    System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                    System.Security.AccessControl.PropagationFlags.None,
+                    System.Security.AccessControl.AccessControlType.Allow));
+            }
+            new DirectoryInfo(path).SetAccessControl(security);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Not running elevated (e.g. a developer run); the installer sets the same rules.
+        }
     }
 
     public static string DefaultDirectory() => OperatingSystem.IsWindows()

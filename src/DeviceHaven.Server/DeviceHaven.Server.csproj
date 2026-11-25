@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Ship the console next to the .exe (single-file builds can't serve it from inside the bundle). -->
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="DeviceHaven.Server.Tests" />
   </ItemGroup>
 

@@ -1,0 +1,17 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!--
+    Builds DeviceHaven-Agent.msi from the published agent (dotnet publish ... -o out\agent).
+    WiX 5 is used on purpose: it is MIT-licensed with no extra licence terms.
+  -->
+  <PropertyGroup>
+    <OutputName>DeviceHaven-Agent</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <AgentPublishDir Condition="'$(AgentPublishDir)' == ''">$(MSBuildThisFileDirectory)..\..\out\agent</AgentPublishDir>
+    <DefineConstants>ProductVersion=$(Version);AgentDir=$(AgentPublishDir);AssetsDir=$(AssetsDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

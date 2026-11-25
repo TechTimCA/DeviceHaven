@@ -6,11 +6,12 @@ using Microsoft.Extensions.Options;
 
 namespace DeviceHaven.Server.Endpoints;
 
-public sealed record CreateEnrollmentCodeRequest(int? ValidHours, string? Note);
+public sealed record CreateEnrollmentCodeRequest(int? ValidHours, string? Note, int? MaxUses);
 
 public sealed record EnrollmentCodeResponse(
     string Code,
     DateTimeOffset ExpiresAt,
+    int MaxUses,
     string ServerUrl,
     string Fingerprint,
     string InstallCommand);
@@ -47,12 +48,13 @@ public static class AdminEndpoints
             CertificateProvider certs, IOptions<ServerOptions> options) =>
         {
             var hours = Math.Clamp(request.ValidHours ?? 24, 1, 168);
-            var (code, expires) = store.CreateEnrollmentCode(TimeSpan.FromHours(hours), request.Note);
+            var uses = Math.Clamp(request.MaxUses ?? 1, 1, 1000);
+            var (code, expires) = store.CreateEnrollmentCode(TimeSpan.FromHours(hours), request.Note, uses);
             var url = options.Value.ResolvePublicUrl();
             var fingerprint = certs.Fingerprint;
-            store.Audit(Actor, "enrollment_code.created", null, $"Valid {hours}h{(request.Note is null ? "" : $": {request.Note}")}");
+            store.Audit(Actor, "enrollment_code.created", null, $"Valid {hours}h for {uses} PC(s){(request.Note is null ? "" : $": {request.Note}")}");
             return Results.Ok(new EnrollmentCodeResponse(
-                code, expires, url, Fingerprint.Display(fingerprint),
+                code, expires, uses, url, Fingerprint.Display(fingerprint),
                 $"msiexec /i DeviceHaven-Agent.msi /qn SERVERURL=\"{url}\" ENROLLCODE=\"{code}\" FINGERPRINT=\"{fingerprint}\""));
         });
 

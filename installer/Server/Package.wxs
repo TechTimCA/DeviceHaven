@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DeviceHaven Server installer.
+
+  Silent install:
+    msiexec /i DeviceHaven-Server.msi /qn
+  Optional properties:
+    PORT=8443                              HTTPS port for the console and agents
+    PUBLICURL="https://devicehaven:8443"   Address agents should use (default: this PC's name)
+
+  Uninstalling keeps the database in %ProgramData%\DeviceHaven\Server.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Package Name="DeviceHaven Server"
+           Manufacturer="DeviceHaven"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="2F7D9B14-8A3C-4E62-B5D1-0C9E6A4F7B23"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="DeviceHaven Server - Every Device. One Platform." />
+
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="ServerIcon" SourceFile="$(var.AssetsDir)\icons\DeviceHaven-App-Icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ServerIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/TechTimCA/DeviceHaven" />
+
+    <!-- Remember the port across upgrades unless a new one is given. -->
+    <Property Id="PORT" Value="8443" Secure="yes" />
+    <Property Id="SAVEDPORT">
+      <RegistrySearch Id="SavedPortSearch" Root="HKLM" Key="SOFTWARE\DeviceHaven\Server" Name="Port" Type="raw" Bitness="always64" />
+    </Property>
+    <SetProperty Id="PORT" Value="[SAVEDPORT]" After="AppSearch" Sequence="both" Condition="SAVEDPORT AND PORT = &quot;8443&quot;" />
+    <Property Id="PUBLICURL" Secure="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="CompanyFolder" Name="DeviceHaven">
+        <Directory Id="INSTALLFOLDER" Name="Server">
+          <Directory Id="WWWROOT" Name="wwwroot" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DataCompanyFolder" Name="DeviceHaven">
+        <Directory Id="SERVERDATAFOLDER" Name="Server" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDeviceHaven" Name="DeviceHaven" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="DeviceHaven Server" Level="1">
+      <ComponentGroupRef Id="ServerComponents" />
+      <ComponentGroupRef Id="ConsoleFiles" />
+    </Feature>
+
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.AssetsDir)\installer\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.AssetsDir)\installer\dialog.bmp" />
+    <UIRef Id="DeviceHavenServerUI" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ServerComponents">
+
+      <Component Id="ServerExe" Directory="INSTALLFOLDER" Bitness="always64">
+        <File Id="ServerExeFile" Source="$(var.ServerDir)\DeviceHaven.Server.exe" KeyPath="yes" />
+        <ServiceInstall Id="ServerServiceInstall"
+                        Name="DeviceHavenServer"
+                        DisplayName="DeviceHaven Server"
+                        Description="Runs the DeviceHaven console and manages your devices. Every Device. One Platform."
+                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Account="LocalSystem" Vital="yes">
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="30"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="ServerServiceControl" Name="DeviceHavenServer"
+                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+
+        <!-- Lets agents on your private or domain network reach the server. Not opened on public networks. -->
+        <fw:FirewallException Id="ServerFirewallDomain" Name="DeviceHaven Server (domain)"
+                              Program="[#ServerExeFile]" Port="[PORT]" Protocol="tcp" Scope="any" Profile="domain" />
+        <fw:FirewallException Id="ServerFirewallPrivate" Name="DeviceHaven Server (private)"
+                              Program="[#ServerExeFile]" Port="[PORT]" Protocol="tcp" Scope="any" Profile="private" />
+      </Component>
+
+      <Component Id="ServerAppSettings" Directory="INSTALLFOLDER" Bitness="always64">
+        <File Id="ServerAppSettingsFile" Source="$(var.ServerDir)\appsettings.json" KeyPath="yes" />
+      </Component>
+
+      <Component Id="ServerSettings" Directory="INSTALLFOLDER" Bitness="always64" Guid="9A2E4C71-5D3B-4F86-A1C0-6E8B7D2F4A15">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\DeviceHaven\Server">
+          <RegistryValue Name="Port" Type="string" Value="[PORT]" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="ServerPublicUrl" Directory="INSTALLFOLDER" Bitness="always64" Condition="PUBLICURL"
+                 Guid="E1B7F3A9-2C64-4D58-9F0A-3B5C8E6D1A72">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\DeviceHaven\Server">
+          <RegistryValue Name="PublicUrl" Type="string" Value="[PUBLICURL]" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Database, certificate and keys: only SYSTEM and Administrators. Kept on uninstall. -->
+      <Component Id="ServerDataFolder" Directory="SERVERDATAFOLDER" Bitness="always64" Permanent="yes"
+                 Guid="7C3D1E59-4B2A-4F8E-A6D7-1F0E9B3C5A84">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+        </CreateFolder>
+      </Component>
+
+      <Component Id="ConsoleShortcut" Directory="ProgramMenuDeviceHaven" Bitness="always64"
+                 Guid="3E8A5B20-7F1C-4D93-B6E4-0A2D9C1F8B57">
+        <util:InternetShortcut Id="ConsoleUrl" Name="DeviceHaven Console" Target="https://localhost:[PORT]/"
+                               Type="url" IconFile="[#ServerExeFile]" IconIndex="0" />
+        <RemoveFolder Id="RemoveProgramMenuDeviceHaven" On="uninstall" />
+        <RegistryValue Root="HKLM" Key="SOFTWARE\DeviceHaven\Server" Name="ConsoleShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <ComponentGroup Id="ConsoleFiles" Directory="WWWROOT">
+      <Files Include="$(var.ServerDir)\wwwroot\**">
+        <Exclude Files="$(var.ServerDir)\wwwroot\**\*.br" />
+        <Exclude Files="$(var.ServerDir)\wwwroot\**\*.gz" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

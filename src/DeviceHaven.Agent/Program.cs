@@ -9,13 +9,14 @@ if (args.Length > 0 && args[0].Equals("configure", StringComparison.OrdinalIgnor
 }
 
 var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddWindowsService(o => o.ServiceName = "DeviceHaven Agent");
+builder.Services.AddWindowsService(o => o.ServiceName = "DeviceHavenAgent");
 builder.Services.AddSingleton(new AgentStore());
 builder.Services.AddSingleton(sp => InventoryCollectorFactory.Create(sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddHostedService(sp => new AgentWorker(
     sp.GetRequiredService<AgentStore>(),
     sp.GetRequiredService<IInventoryCollector>(),
-    sp.GetRequiredService<ILogger<AgentWorker>>()));
+    sp.GetRequiredService<ILogger<AgentWorker>>(),
+    installerSettings: OperatingSystem.IsWindows() ? new RegistryPendingConfigSource() : null));
 
 builder.Build().Run();
 return 0;

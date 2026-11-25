@@ -39,13 +39,18 @@ public sealed class Store
 
     // ---------- Enrolment codes ----------
 
-    public (string Code, DateTimeOffset ExpiresAt) CreateEnrollmentCode(TimeSpan validFor, string? note)
+    /// <summary>
+    /// Creates a code. <paramref name="maxUses"/> above 1 makes a deployment
+    /// code, for installing on many PCs with one silent install command.
+    /// </summary>
+    public (string Code, DateTimeOffset ExpiresAt) CreateEnrollmentCode(TimeSpan validFor, string? note, int maxUses = 1)
     {
         var code = Secrets.NewEnrollmentCode();
         var expires = _time.GetUtcNow().Add(validFor);
         using var c = _db.Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "INSERT INTO enrollment_codes (code_hash, created_at, expires_at, note) VALUES ($h, $c, $e, $n)";
+        cmd.CommandText = "INSERT INTO enrollment_codes (code_hash, created_at, expires_at, note, max_uses) VALUES ($h, $c, $e, $n, $m)";
+        cmd.Parameters.AddWithValue("$m", Math.Clamp(maxUses, 1, 1000));
         cmd.Parameters.AddWithValue("$h", Secrets.Hash(Secrets.NormalizeEnrollmentCode(code)));
         cmd.Parameters.AddWithValue("$c", Now);
         cmd.Parameters.AddWithValue("$e", expires.ToString("O", CultureInfo.InvariantCulture));
@@ -55,16 +60,16 @@ public sealed class Store
     }
 
     /// <summary>
-    /// Uses up a code in a single statement, so two PCs racing with the same
-    /// code can't both succeed. Returns false for unknown, used or expired codes.
+    /// Uses one go of a code in a single statement, so PCs racing with the same
+    /// code can't exceed its limit. Returns false for unknown, used-up or expired codes.
     /// </summary>
     public bool TryConsumeEnrollmentCode(string code, string usedBy, SqliteConnection c, SqliteTransaction tx)
     {
         using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            UPDATE enrollment_codes SET used_at = $now, used_by = $by
-            WHERE code_hash = $h AND used_at IS NULL AND expires_at > $now
+            UPDATE enrollment_codes SET uses = uses + 1, used_at = $now, used_by = $by
+            WHERE code_hash = $h AND uses < max_uses AND expires_at > $now
             """;
         cmd.Parameters.AddWithValue("$h", Secrets.Hash(Secrets.NormalizeEnrollmentCode(code)));
         cmd.Parameters.AddWithValue("$now", Now);

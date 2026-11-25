@@ -15,6 +15,7 @@ jobs:
     env:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
+      VERSION: 0.1.${{ github.run_number }}
 
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +28,7 @@ jobs:
         run: dotnet restore DeviceHaven.slnx
 
       - name: Build
-        run: dotnet build DeviceHaven.slnx --configuration Release --no-restore
+        run: dotnet build DeviceHaven.slnx --configuration Release --no-restore -p:Version=${{ env.VERSION }}
 
       - name: Test
         run: dotnet test DeviceHaven.slnx --configuration Release --no-build --logger "trx;LogFileName=results.trx"
@@ -37,6 +38,7 @@ jobs:
           dotnet publish src/DeviceHaven.Server/DeviceHaven.Server.csproj
           --configuration Release --runtime win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ env.VERSION }}
           --output out/server
 
       - name: Publish agent (win-x64, self-contained)
@@ -44,19 +46,32 @@ jobs:
           dotnet publish src/DeviceHaven.Agent/DeviceHaven.Agent.csproj
           --configuration Release --runtime win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ env.VERSION }}
           --output out/agent
 
-      - name: Upload server
-        uses: actions/upload-artifact@v4
-        with:
-          name: DeviceHaven-Server-win-x64
-          path: out/server
+      - name: Build installers (MSI)
+        run: |
+          dotnet build installer/Server/DeviceHaven.Server.Installer.wixproj --configuration Release -p:Version=${{ env.VERSION }} -p:ServerPublishDir="${{ github.workspace }}\out\server" --output out/msi
+          dotnet build installer/Agent/DeviceHaven.Agent.Installer.wixproj --configuration Release -p:Version=${{ env.VERSION }} -p:AgentPublishDir="${{ github.workspace }}\out\agent" --output out/msi
 
-      - name: Upload agent
+      - name: Check the MSIs
+        shell: pwsh
+        run: |
+          foreach ($msi in Get-ChildItem out/msi/*.msi) {
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($msi.FullName, 0))
+            $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @("SELECT Value FROM Property WHERE Property='ProductVersion'"))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+            $version = $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, 1)
+            "{0}  {1:N1} MB  version {2}" -f $msi.Name, ($msi.Length / 1MB), $version
+          }
+
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: DeviceHaven-Agent-win-x64
-          path: out/agent
+          name: DeviceHaven-Installers-${{ env.VERSION }}
+          path: out/msi/*.msi
 
       - name: Upload test results
         if: always()

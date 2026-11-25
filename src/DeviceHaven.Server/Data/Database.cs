@@ -45,7 +45,9 @@ public sealed class Database
                 expires_at  TEXT NOT NULL,
                 used_at     TEXT,
                 used_by     TEXT,
-                note        TEXT
+                note        TEXT,
+                max_uses    INTEGER NOT NULL DEFAULT 1,
+                uses        INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS devices (

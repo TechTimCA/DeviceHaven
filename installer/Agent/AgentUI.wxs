@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Agent setup screens: Welcome -> Connect to your server -> Ready -> Install.
+  The server screen is skipped on upgrades, when the agent is already set up.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="DeviceHavenAgentUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="ARPNOMODIFY" Value="1" />
+      <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="The agent is now running and will appear in the DeviceHaven Console within a few minutes." />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+      <DialogRef Id="VerifyReadyDlg" />
+      <DialogRef Id="ExitDialog" />
+      <DialogRef Id="MaintenanceWelcomeDlg" />
+      <DialogRef Id="MaintenanceTypeDlg" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ServerDlg" Condition="NOT Installed AND NOT AGENTCONFIGURED" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="(NOT Installed AND AGENTCONFIGURED) OR (Installed AND PATCH)" />
+
+      <Publish Dialog="ServerDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="ServerDlg" Control="Next" Event="SpawnDialog" Value="ServerMissingDlg" Condition="NOT (SERVERURL AND FINGERPRINT AND ENROLLCODE)" Order="1" />
+      <Publish Dialog="ServerDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="SERVERURL AND FINGERPRINT AND ENROLLCODE" Order="2" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ServerDlg" Condition="NOT Installed AND NOT AGENTCONFIGURED" Order="1" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Condition="NOT Installed AND AGENTCONFIGURED" Order="2" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Condition="Installed AND NOT PATCH" Order="2" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Condition="Installed AND PATCH" Order="2" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <Dialog Id="ServerDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="UrlLabel" Type="Text" X="20" Y="56" Width="330" Height="12" Text="&amp;Server address (for example https://devicehaven:8443):" />
+        <Control Id="UrlEdit" Type="Edit" X="20" Y="69" Width="330" Height="18" Property="SERVERURL" Text="{200}" />
+        <Control Id="FpLabel" Type="Text" X="20" Y="96" Width="330" Height="12" Text="Server &amp;fingerprint:" />
+        <Control Id="FpEdit" Type="Edit" X="20" Y="109" Width="330" Height="18" Property="FINGERPRINT" Text="{128}" />
+        <Control Id="CodeLabel" Type="Text" X="20" Y="136" Width="330" Height="12" Text="&amp;Enrolment code:" />
+        <Control Id="CodeEdit" Type="Edit" X="20" Y="149" Width="160" Height="18" Property="ENROLLCODE" Text="{40}" />
+        <Control Id="Hint" Type="Text" X="20" Y="180" Width="330" Height="40" NoPrefix="yes"
+                 Text="Find these in the DeviceHaven Console under Add devices. The fingerprint makes sure this PC only ever connects to your real server, so copy it exactly." />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="260" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Connect to your DeviceHaven server" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="260" Height="15" Transparent="yes" NoPrefix="yes" Text="Enter the details shown in the DeviceHaven Console." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+      </Dialog>
+
+      <Dialog Id="ServerMissingDlg" Width="260" Height="85" Title="[ProductName] Setup" NoMinimize="yes">
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="WixUI_Ico_Exclam" />
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="194" Height="30" Text="Please enter the server address, fingerprint and enrolment code from the DeviceHaven Console." />
+        <Control Id="OK" Type="PushButton" X="97" Y="57" Width="66" Height="17" Default="yes" Cancel="yes" Text="!(loc.WixUIOK)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>

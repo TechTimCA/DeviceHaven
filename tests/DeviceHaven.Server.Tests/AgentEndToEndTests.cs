@@ -117,6 +117,44 @@ public sealed class AgentEndToEndTests : IDisposable
         Assert.True(waits.Max() - waits.Min() > 60, "jitter should spread check-ins out");
     }
 
+    private sealed class FakeInstallerSettings(PendingConfig? pending) : IPendingConfigSource
+    {
+        public PendingConfig? Pending { get; private set; } = pending;
+        public bool Configured { get; private set; }
+        public PendingConfig? Read() => Pending;
+        public void Clear() => Pending = null;
+        public void MarkConfigured() => Configured = true;
+    }
+
+    [Fact]
+    public async Task Agent_enrols_from_settings_left_by_the_installer_and_deletes_them()
+    {
+        var code = await _factory.CreateCodeAsync();
+        var store = new AgentStore(_agentDir);
+        var installer = new FakeInstallerSettings(new PendingConfig("https://devicehaven.test:8443", Fingerprint.Display(FakeFingerprint).ToLowerInvariant(), code));
+        var worker = new AgentWorker(store, new FixedCollector(ServerSecurityTests.SampleInventory()), NullLogger<AgentWorker>.Instance,
+            config => new ServerClient(config.ServerUrl!, config.Fingerprint!, _factory.Server.CreateHandler()), installer);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+
+        Assert.Null(installer.Pending);                      // registry key removed
+        Assert.True(installer.Configured);                   // upgrades won't ask again
+        Assert.NotNull(store.LoadState().DeviceId);          // enrolled
+        Assert.Null(store.LoadConfig().EnrollmentCode);      // code not kept
+        Assert.Equal(FakeFingerprint, store.LoadConfig().Fingerprint);
+    }
+
+    [Fact]
+    public void Installer_settings_are_validated()
+    {
+        var store = new AgentStore(_agentDir);
+        Assert.NotNull(InstallerSettings.Apply(new PendingConfig("http://plain:8443", FakeFingerprint, "X"), store));
+        Assert.NotNull(InstallerSettings.Apply(new PendingConfig("https://ok:8443", "12:34", "X"), store));
+        Assert.NotNull(InstallerSettings.Apply(new PendingConfig(null, FakeFingerprint, "X"), store));
+        Assert.Null(InstallerSettings.Apply(new PendingConfig("https://ok:8443", FakeFingerprint, null), store));
+        Assert.Null(store.LoadConfig().EnrollmentCode);
+    }
+
     [Fact]
     public void Setup_rejects_bad_install_arguments()
     {

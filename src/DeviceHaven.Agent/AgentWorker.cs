@@ -12,7 +12,8 @@ public sealed class AgentWorker(
     AgentStore store,
     IInventoryCollector collector,
     ILogger<AgentWorker> log,
-    Func<AgentConfig, ServerClient>? clientFactory = null) : BackgroundService
+    Func<AgentConfig, ServerClient>? clientFactory = null,
+    IPendingConfigSource? installerSettings = null) : BackgroundService
 {
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(15);
     private readonly Random _random = new();
@@ -56,6 +57,7 @@ public sealed class AgentWorker(
     /// <summary>One enrol-or-check-in cycle. Returns how long to wait before the next.</summary>
     public async Task<TimeSpan> RunOnceAsync(CancellationToken ct)
     {
+        ApplyInstallerSettings();
         var config = store.LoadConfig();
         if (string.IsNullOrWhiteSpace(config.ServerUrl) || string.IsNullOrWhiteSpace(config.Fingerprint))
             throw new AgentNotConfiguredException("server address or fingerprint missing from agent.json");
@@ -134,6 +136,24 @@ public sealed class AgentWorker(
             log.LogError("The server no longer recognises this device (it may have been removed). Re-install the agent with a new enrolment code.");
             throw;
         }
+    }
+
+    /// <summary>Picks up settings left by the MSI (first install, or a reinstall with new values).</summary>
+    private void ApplyInstallerSettings()
+    {
+        var pending = installerSettings?.Read();
+        if (pending is null) return;
+        var error = InstallerSettings.Apply(pending, store);
+        if (error is null)
+        {
+            installerSettings!.MarkConfigured();
+            log.LogInformation("Applied settings from the installer. Server: {Server}", pending.ServerUrl);
+        }
+        else
+        {
+            log.LogError("Installer settings were rejected: {Reason}", error);
+        }
+        installerSettings!.Clear();
     }
 
     private TimeSpan Backoff(int failures)

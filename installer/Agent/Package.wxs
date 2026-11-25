@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DeviceHaven Agent installer.
+
+  Silent install (one line):
+    msiexec /i DeviceHaven-Agent.msi /qn SERVERURL="https://devicehaven:8443" FINGERPRINT="AB12..." ENROLLCODE="XXXX-XXXX-XXXX-XXXX"
+
+  Upgrades keep the existing enrolment, so later versions need no properties:
+    msiexec /i DeviceHaven-Agent.msi /qn
+
+  Uninstall:
+    msiexec /x DeviceHaven-Agent.msi /qn
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="DeviceHaven Agent"
+           Manufacturer="DeviceHaven"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="8E3C1F52-6B2E-4C7A-9D41-3A5F0B7C2E91"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="DeviceHaven Agent - Every Device. One Platform." />
+
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AgentIcon" SourceFile="$(var.AssetsDir)\icons\DeviceHaven-Agent-Icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AgentIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/TechTimCA/DeviceHaven" />
+
+    <!-- Settings from the console. ENROLLCODE is hidden so it never appears in install logs. -->
+    <Property Id="SERVERURL" Secure="yes" />
+    <Property Id="FINGERPRINT" Secure="yes" />
+    <Property Id="ENROLLCODE" Secure="yes" Hidden="yes" />
+
+    <!-- Set by the agent once it has saved its settings: upgrades then need no properties. -->
+    <Property Id="AGENTCONFIGURED" Secure="yes">
+      <RegistrySearch Id="AgentConfiguredSearch" Root="HKLM" Key="SOFTWARE\DeviceHaven\Agent"
+                      Name="Configured" Type="raw" Bitness="always64" />
+    </Property>
+
+    <CustomAction Id="RequireServerSettings"
+                  Error="DeviceHaven Agent needs to know which server to connect to. Run the installer again and enter the details from the DeviceHaven Console, or for a silent install add SERVERURL, FINGERPRINT and ENROLLCODE." />
+    <InstallExecuteSequence>
+      <Custom Action="RequireServerSettings" Before="InstallInitialize"
+              Condition="NOT Installed AND NOT AGENTCONFIGURED AND NOT (SERVERURL AND FINGERPRINT AND ENROLLCODE)" />
+    </InstallExecuteSequence>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="CompanyFolder" Name="DeviceHaven">
+        <Directory Id="INSTALLFOLDER" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DataCompanyFolder" Name="DeviceHaven">
+        <Directory Id="AGENTDATAFOLDER" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="DeviceHaven Agent" Level="1">
+      <ComponentGroupRef Id="AgentComponents" />
+    </Feature>
+
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.AssetsDir)\installer\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.AssetsDir)\installer\dialog.bmp" />
+    <UIRef Id="DeviceHavenAgentUI" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AgentComponents">
+
+      <Component Id="AgentExe" Directory="INSTALLFOLDER" Bitness="always64">
+        <File Id="AgentExeFile" Source="$(var.AgentDir)\DeviceHaven.Agent.exe" KeyPath="yes" />
+        <ServiceInstall Id="AgentServiceInstall"
+                        Name="DeviceHavenAgent"
+                        DisplayName="DeviceHaven Agent"
+                        Description="Connects this PC to your DeviceHaven server. Every Device. One Platform."
+                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Account="LocalSystem" Vital="yes">
+          <!-- If the agent ever stops unexpectedly, Windows restarts it after 30 seconds. -->
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="30"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="AgentServiceControl" Name="DeviceHavenAgent"
+                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+
+      <Component Id="AgentAppSettings" Directory="INSTALLFOLDER" Bitness="always64">
+        <File Id="AgentAppSettingsFile" Source="$(var.AgentDir)\appsettings.json" KeyPath="yes" />
+      </Component>
+
+      <!-- The agent's own folder: only SYSTEM and Administrators can open it. Kept on uninstall. -->
+      <Component Id="AgentDataFolder" Directory="AGENTDATAFOLDER" Bitness="always64" Permanent="yes"
+                 Guid="5B0E7A43-1C2D-4E8F-9A6B-7D3C2E1F0A94">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+        </CreateFolder>
+      </Component>
+
+      <!--
+        Hands the console details to the agent through a registry key that only
+        SYSTEM and Administrators can read. The agent copies them into its own
+        protected settings on start-up, then deletes the key.
+      -->
+      <Component Id="InstallerSettings" Directory="INSTALLFOLDER" Bitness="always64"
+                 Condition="SERVERURL AND FINGERPRINT" Guid="C4A1D9E2-3F6B-4A87-B2C5-9E0D1F7A3B68">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\DeviceHaven\Agent\Pending">
+          <PermissionEx Sddl="D:PAI(A;CI;KA;;;SY)(A;CI;KA;;;BA)" />
+          <RegistryValue Name="ServerUrl" Type="string" Value="[SERVERURL]" KeyPath="yes" />
+          <RegistryValue Name="Fingerprint" Type="string" Value="[FINGERPRINT]" />
+          <RegistryValue Name="EnrollmentCode" Type="string" Value="[ENROLLCODE]" />
+        </RegistryKey>
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+</Wix>

@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!-- Builds DeviceHaven-Server.msi from the published server (dotnet publish ... -o out\server). -->
+  <PropertyGroup>
+    <OutputName>DeviceHaven-Server</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <ServerPublishDir Condition="'$(ServerPublishDir)' == ''">$(MSBuildThisFileDirectory)..\..\out\server</ServerPublishDir>
+    <DefineConstants>ProductVersion=$(Version);ServerDir=$(ServerPublishDir);AssetsDir=$(AssetsDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

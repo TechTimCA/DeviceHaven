@@ -15,7 +15,9 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = AppContext.BaseDirectory,
 });
 
-builder.Host.UseWindowsService(o => o.ServiceName = "DeviceHaven Server");
+builder.Host.UseWindowsService(o => o.ServiceName = "DeviceHavenServer");
+if (OperatingSystem.IsWindows() && !builder.Environment.IsEnvironment("Testing"))
+    builder.Configuration.AddInMemoryCollection(ServerInstallerSettings.ReadFromRegistry());
 
 builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection(ServerOptions.Section));
 var options = builder.Configuration.GetSection(ServerOptions.Section).Get<ServerOptions>() ?? new ServerOptions();
@@ -88,6 +90,10 @@ app.Use(async (context, next) =>
 });
 
 app.UseRateLimiter();
+
+// The web console: static files only. All data comes from the admin API.
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapAgentEndpoints();

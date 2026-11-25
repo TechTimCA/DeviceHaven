@@ -12,21 +12,66 @@ on your own network: there is no cloud service, no account and no tracking.
 
 ## What works today
 
-- **Server** (Windows service): HTTPS with its own certificate, made on first start.
-- **One-time enrolment codes**: single use, expire after 1–168 hours, stored only as hashes.
-- **Agent** (Windows service): enrols once, then checks in on a schedule the server sets.
-- **Inventory**: hardware, serial number, Windows version and build, disks and BitLocker status, logged-on user, and installed programs.
-- **Settings you control**: check-in from every 30 seconds to once a day, plus inventory frequency and random spread so PCs don't all check in at once.
+- **Installers**: `DeviceHaven-Server.msi` and `DeviceHaven-Agent.msi`, with silent switches for Group Policy, Intune or any RMM.
+- **Web console**: devices with online status, full inventory per device, enrolment codes with ready-to-copy install commands, agent settings and the audit log. Light and dark mode.
+- **Server** (Windows service): HTTPS with its own certificate, made on first start and trusted on the server so the console opens without a warning.
+- **Enrolment codes**: for one PC or a whole batch (up to 1,000), expiring after 1–168 hours, stored only as hashes.
+- **Agent** (Windows service): enrols once, then checks in on the schedule you set. Windows restarts it automatically if it ever stops.
+- **Inventory**: hardware, serial number, Windows version and build, disks and BitLocker status, logged-on user, and installed programs. Only changes are sent.
 - **Audit log** that can only be added to, never edited or deleted.
 
-## Coming next
+## Install
+
+### 1. Server
+
+Run **DeviceHaven-Server.msi** on the PC or server that will run DeviceHaven, then open
+**DeviceHaven Console** from the Start menu.
+
+Silent install:
+
+```
+msiexec /i DeviceHaven-Server.msi /qn
+```
+
+| Property | Default | What it does |
+|---|---|---|
+| `PORT` | `8443` | HTTPS port for the console and agents. Opened in Windows Firewall for domain and private networks only. |
+| `PUBLICURL` | `https://<this PC's name>:8443` | The address agents use, if they reach the server by another name. |
+
+### 2. Agents
+
+In the console, choose **Add devices**, pick how many PCs, and create a code. Then on each PC
+either run **DeviceHaven-Agent.msi** and enter the details it asks for, or install silently:
+
+```
+msiexec /i DeviceHaven-Agent.msi /qn SERVERURL="https://devicehaven:8443" FINGERPRINT="<from the console>" ENROLLCODE="<code>"
+```
+
+| Property | Needed | What it does |
+|---|---|---|
+| `SERVERURL` | First install | The server's address, shown in the console. |
+| `FINGERPRINT` | First install | The server's certificate fingerprint. The agent will only ever trust this server. |
+| `ENROLLCODE` | First install | A code from the console. Never written to install logs. |
+
+Upgrades need no properties: `msiexec /i DeviceHaven-Agent.msi /qn` keeps the existing enrolment.
+Uninstall with `msiexec /x DeviceHaven-Agent.msi /qn`.
+
+Download the latest MSIs from **Actions → latest run → Artifacts** until the first release is published.
+
+## Roadmap
 
 | Stage | What you get |
 |---|---|
-| 1 (in progress) | Installers (.exe for the server, .msi for the agent), web dashboard, admin sign-in with two-step verification, tray app |
+| 1 (in progress) | ✅ Installers, console, enrolment and inventory · Next: admin sign-in with two-step verification, tray app, lighter agent |
 | 2 | Software deployment (winget catalog) and Windows patching |
 | 3 | Policies, remote tools and remote help |
 | 4 | Imaging: image library, drivers, USB then network (PXE) boot |
+| 5 | macOS and Linux: agents for both (.pkg, .deb and .rpm), and the server on Linux or Docker |
+
+The protocol, server and agent core are already cross-platform .NET. Only the parts that
+talk to the operating system (inventory, secret storage, service hosting and installers) are
+Windows-specific, and they sit behind interfaces so macOS and Linux versions can be added
+alongside them.
 
 ## How it connects
 
@@ -47,35 +92,11 @@ on your own network: there is no cloud service, no account and no tracking.
 | Agent | 64-bit Windows 10/11. Nothing else. |
 | Imaging (stage 4) | Microsoft's free Windows ADK and WinPE add-on. |
 
-## Trying the current build
-
-Until the installers are ready, each push to `main` produces Windows builds under
-**Actions → latest run → Artifacts**:
-
-1. **Server**: on the server PC, from an admin prompt:
-   ```powershell
-   sc.exe create "DeviceHaven Server" binPath= "C:\DeviceHaven\Server\DeviceHaven.Server.exe" start= auto
-   sc.exe start "DeviceHaven Server"
-   ```
-   Allow TCP 8443 in Windows Firewall. Then, on the server, create an enrolment code:
-   ```powershell
-   Invoke-RestMethod -Method Post -Uri https://localhost:8443/api/admin/enrollment-codes `
-     -ContentType application/json -Body '{"validHours":24}' -SkipCertificateCheck
-   ```
-   It returns the code, the server's fingerprint and the install command.
-2. **Agent**: on each PC, from an admin prompt:
-   ```powershell
-   C:\DeviceHaven\Agent\DeviceHaven.Agent.exe configure --server https://YOUR-SERVER:8443 --fingerprint <fingerprint> --code <code>
-   sc.exe create "DeviceHaven Agent" binPath= "C:\DeviceHaven\Agent\DeviceHaven.Agent.exe" start= auto
-   sc.exe start "DeviceHaven Agent"
-   ```
-3. On the server, list enrolled PCs: `Invoke-RestMethod https://localhost:8443/api/admin/devices -SkipCertificateCheck`
-
-Until admin sign-in is built, the admin API only answers requests made on the server itself.
+Until admin sign-in is built, the console only works when opened on the server itself.
 
 ## Building from source
 
-Needs the .NET 10 SDK.
+Needs the .NET 10 SDK. The installers also need Windows (WiX Toolset 5).
 
 ```powershell
 dotnet build DeviceHaven.slnx
@@ -89,7 +110,8 @@ src/DeviceHaven.Shared   Protocol messages and certificate pinning, shared by se
 src/DeviceHaven.Server   ASP.NET Core server, SQLite database, admin and agent APIs
 src/DeviceHaven.Agent    Windows service: enrolment, check-in, inventory
 tests/                   Security and end-to-end tests (real agent loop against real server)
-assets/                  Brand artwork and Windows icons
+installer/               WiX MSI projects for the server and agent
+assets/                  Brand artwork, Windows icons and installer images
 ```
 
 ## Licence

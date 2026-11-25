@@ -54,6 +54,31 @@ public sealed class ServerSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task Deployment_code_works_for_exactly_its_number_of_pcs()
+    {
+        var create = await _client.PostAsJsonAsync("/api/admin/enrollment-codes", new { validHours = 24, maxUses = 3 });
+        var code = (await create.Content.ReadFromJsonAsync<Endpoints.EnrollmentCodeResponse>())!;
+        Assert.Equal(3, code.MaxUses);
+        Assert.Contains("/qn", code.InstallCommand, StringComparison.Ordinal);
+
+        var results = new List<HttpStatusCode>();
+        for (var i = 0; i < 4; i++)
+            results.Add((await _client.PostAsJsonAsync("/api/agent/enroll", Request(code.Code, $"PC-{i}"))).StatusCode);
+
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.Forbidden], results);
+    }
+
+    [Fact]
+    public async Task Console_page_is_served_with_a_strict_content_policy()
+    {
+        var response = await _client.GetAsync("/");
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("DeviceHaven Console", html, StringComparison.Ordinal);
+        Assert.Contains("default-src 'self'", response.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Expired_enrolment_code_is_refused()
     {
         var code = await _factory.CreateCodeAsync(validHours: 1);

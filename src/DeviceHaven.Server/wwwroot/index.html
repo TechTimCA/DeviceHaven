@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeviceHaven Console</title>
+  <link rel="icon" href="img/app-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="side" aria-label="Main">
+    <div class="brand">
+      <img src="img/app-icon.png" alt="" class="brand-icon">
+      <div>
+        <div class="brand-name"><span>Device</span><span class="teal">Haven</span></div>
+        <div class="brand-sub">Endpoint Management</div>
+      </div>
+    </div>
+    <div class="nav">
+      <a href="#console" data-view="console" class="active">Console</a>
+      <a href="#add" data-view="add">Add devices</a>
+      <a href="#settings" data-view="settings">Agent settings</a>
+      <a href="#audit" data-view="audit">Security &amp; audit</a>
+      <div class="nav-soon" aria-label="Coming soon">
+        <span>Deploy</span><span>Patch</span><span>Policies</span><span>Remote</span>
+        <small>Coming in later stages</small>
+      </div>
+    </div>
+    <div class="side-foot">
+      <div class="local">
+        <strong>Local only</strong>
+        All data stays on this server. Nothing is sent to the cloud.
+      </div>
+      <div class="tagline">Every Device. One Platform. · <span id="version">v0.1</span></div>
+    </div>
+  </nav>
+
+  <main>
+    <header class="top">
+      <div>
+        <h1 id="title">Console</h1>
+        <p id="subtitle" class="muted">Every device on your network at a glance</p>
+      </div>
+      <div class="top-actions">
+        <span class="pill-ok">Encrypted · Local network</span>
+        <button type="button" id="theme" class="btn icon" aria-label="Switch to dark mode" title="Switch theme"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+        <a href="#add" class="btn primary">Add devices</a>
+      </div>
+    </header>
+
+    <div id="notice" class="notice" hidden></div>
+
+    <!-- Console -->
+    <section id="view-console" class="view">
+      <div class="stats">
+        <div class="card stat"><div class="label">Devices</div><div class="value" id="s-total">–</div></div>
+        <div class="card stat"><div class="label">Online</div><div class="value" id="s-online">–</div><div class="note ok" id="s-online-note"></div></div>
+        <div class="card stat"><div class="label">Offline</div><div class="value" id="s-offline">–</div><div class="note warn" id="s-offline-note"></div></div>
+        <div class="card stat"><div class="label">Check-in every</div><div class="value" id="s-checkin">–</div><div class="note" id="s-checkin-note"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Devices</h2>
+          <label class="search"><span class="sr">Search devices</span><input type="search" id="search" placeholder="Search devices"></label>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Status</th><th>OS</th><th>Agent</th><th>Last seen</th><th>Address</th><th></th></tr></thead>
+            <tbody id="devices"></tbody>
+          </table>
+        </div>
+        <p id="empty" class="empty" hidden>No devices yet. Choose <a href="#add">Add devices</a> to get started.</p>
+      </div>
+    </section>
+
+    <!-- Add devices -->
+    <section id="view-add" class="view" hidden>
+      <div class="grid2">
+        <form class="card pad" id="code-form">
+          <h2>Create an enrolment code</h2>
+          <p class="muted">Each code works for the number of PCs you choose, then stops working. Codes are never stored in a readable form.</p>
+          <label>How many PCs will use this code?
+            <input type="number" id="max-uses" min="1" max="1000" value="1" required>
+          </label>
+          <label>Code expires after
+            <select id="valid-hours">
+              <option value="1">1 hour</option>
+              <option value="8">8 hours</option>
+              <option value="24" selected>24 hours</option>
+              <option value="72">3 days</option>
+              <option value="168">7 days</option>
+            </select>
+          </label>
+          <label>Note (optional)
+            <input type="text" id="note" maxlength="100" placeholder="e.g. Front office PCs">
+          </label>
+          <button type="submit" class="btn primary">Create code</button>
+        </form>
+
+        <div class="card pad" id="code-result" hidden>
+          <h2>Install the agent</h2>
+          <p class="muted">Copy these now: the code can't be shown again.</p>
+          <div class="kv"><span>Enrolment code</span><code id="r-code"></code></div>
+          <div class="kv"><span>Server address</span><code id="r-url"></code></div>
+          <div class="kv"><span>Server fingerprint</span><code id="r-fp" class="wrap"></code></div>
+          <div class="kv"><span>Works for</span><span id="r-uses"></span></div>
+          <div class="kv"><span>Expires</span><span id="r-exp"></span></div>
+
+          <h3>Silent install (Group Policy, RMM, Intune, or a script)</h3>
+          <pre id="r-cmd"></pre>
+          <button type="button" class="btn" id="copy-cmd">Copy command</button>
+
+          <h3>Or install by hand</h3>
+          <p class="muted">Run <strong>DeviceHaven-Agent.msi</strong> on the PC and enter the server address, fingerprint and code when asked.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view" hidden>
+      <form class="card pad narrow" id="settings-form">
+        <h2>Agent settings</h2>
+        <p class="muted">These apply to every device. Agents pick up changes at their next check-in.</p>
+        <label>Check in every (seconds)
+          <input type="number" id="set-checkin" min="30" max="86400" required>
+          <small>30 seconds to 86,400 (once a day)</small>
+        </label>
+        <label>Full inventory scan every (minutes)
+          <input type="number" id="set-inventory" min="60" max="10080" required>
+          <small>60 (hourly) to 10,080 (weekly). Only changes are sent.</small>
+        </label>
+        <label>Random spread (%)
+          <input type="number" id="set-jitter" min="0" max="50" required>
+          <small>Stops every PC checking in at the same moment</small>
+        </label>
+        <label class="check"><input type="checkbox" id="set-tray"> Show the tray icon on PCs</label>
+        <button type="submit" class="btn primary">Save settings</button>
+        <span id="settings-saved" class="ok" hidden>Saved</span>
+      </form>
+    </section>
+
+    <!-- Audit -->
+    <section id="view-audit" class="view" hidden>
+      <div class="card">
+        <div class="card-head"><h2>Audit log</h2><span class="muted small">Entries can't be edited or deleted</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
+            <tbody id="audit"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card pad narrow">
+        <h2>Server identity</h2>
+        <div class="kv"><span>Address</span><code id="i-url"></code></div>
+        <div class="kv"><span>Fingerprint</span><code id="i-fp" class="wrap"></code></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="device-dialog">
+  <div class="dlg-head">
+    <h2 id="d-name"></h2>
+    <button type="button" class="btn icon" id="d-close" aria-label="Close">✕</button>
+  </div>
+  <div id="d-body"></div>
+</dialog>
+
+<script src="js/app.js"></script>
+</body>
+</html>
