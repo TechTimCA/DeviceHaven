@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>DeviceHaven.Server</RootNamespace>
+    <AssemblyName>DeviceHaven.Server</AssemblyName>
+    <ApplicationIcon>..\..\assets\icons\DeviceHaven-App-Icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DeviceHaven.Shared\DeviceHaven.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DeviceHaven.Server.Tests" />
+  </ItemGroup>
+
+</Project>

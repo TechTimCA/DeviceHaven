@@ -1,0 +1,18 @@
+bin/
+obj/
+out/
+TestResults/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# Local run data (never commit databases, keys or tokens)
+data/
+agent-data/
+*.db
+*.db-shm
+*.db-wal
+*.pfx
+*.token

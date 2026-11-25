@@ -1,0 +1,66 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore DeviceHaven.slnx
+
+      - name: Build
+        run: dotnet build DeviceHaven.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test DeviceHaven.slnx --configuration Release --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Publish server (win-x64, self-contained)
+        run: >
+          dotnet publish src/DeviceHaven.Server/DeviceHaven.Server.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          --output out/server
+
+      - name: Publish agent (win-x64, self-contained)
+        run: >
+          dotnet publish src/DeviceHaven.Agent/DeviceHaven.Agent.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          --output out/agent
+
+      - name: Upload server
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeviceHaven-Server-win-x64
+          path: out/server
+
+      - name: Upload agent
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeviceHaven-Agent-win-x64
+          path: out/agent
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'

@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <Company>DeviceHaven</Company>
+    <Product>DeviceHaven Endpoint Management</Product>
+    <Version>0.1.0</Version>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <NoWarn>$(NoWarn);CA1716;CA1848;CA2007;CA1031;CA1062;CA1515;CA1873</NoWarn>
+  </PropertyGroup>
+</Project>
