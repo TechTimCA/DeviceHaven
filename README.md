@@ -56,7 +56,7 @@ msiexec /i DeviceHaven-Agent.msi /qn SERVERURL="https://devicehaven:8443" FINGER
 Upgrades need no properties: `msiexec /i DeviceHaven-Agent.msi /qn` keeps the existing enrolment.
 Uninstall with `msiexec /x DeviceHaven-Agent.msi /qn`.
 
-Download the latest MSIs from **Actions → latest run → Artifacts** until the first release is published.
+Download the latest MSIs from the [Releases page](https://github.com/TechTimCA/DeviceHaven/releases). Every build of `main` that passes its install test is published there as a preview.
 
 ## Roadmap
 

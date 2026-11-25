@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # needed to publish the MSIs on the Releases page
 
 jobs:
   windows:
@@ -152,6 +152,16 @@ jobs:
         with:
           name: DeviceHaven-Installers-${{ env.VERSION }}
           path: out/msi/*.msi
+
+      - name: Publish on the Releases page
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "Early preview build: not for production use yet. Download DeviceHaven-Server.msi for the server and DeviceHaven-Agent.msi for each PC. See the README for silent install switches."
+          gh release create "v$env:VERSION" out/msi/DeviceHaven-Server.msi out/msi/DeviceHaven-Agent.msi `
+            --title "DeviceHaven $env:VERSION (preview)" --notes "$notes" --generate-notes --prerelease --target $env:GITHUB_SHA
 
       - name: Upload test results
         if: always()
