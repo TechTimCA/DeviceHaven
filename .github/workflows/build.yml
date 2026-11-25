@@ -12,6 +12,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -68,6 +69,7 @@ jobs:
           }
 
       - name: Install test (silent server + agent install, enrol, uninstall)
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -75,9 +77,9 @@ jobs:
           New-Item -ItemType Directory -Force out/logs | Out-Null
           $logs = (Resolve-Path out/logs).Path
 
-          function Install([string]$args) {
-            $p = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
-            if ($p.ExitCode -ne 0) { throw "msiexec $args failed with exit code $($p.ExitCode)" }
+          function Install([string]$msiArgs) {
+            $p = Start-Process msiexec.exe -ArgumentList $msiArgs -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "msiexec $msiArgs failed with exit code $($p.ExitCode)" }
           }
 
           # 1. Server, silent
