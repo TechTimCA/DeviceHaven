@@ -86,6 +86,13 @@ public sealed class AgentWorker(
             log.LogInformation("Enrolled with the server as device {DeviceId}.", enrolled.DeviceId);
         }
 
+        // Already enrolled: a code passed again (for example on an upgrade) isn't needed, so don't keep it.
+        if (!string.IsNullOrEmpty(config.EnrollmentCode))
+        {
+            config.EnrollmentCode = null;
+            store.SaveConfig(config);
+        }
+
         var settings = (state.Settings ?? AgentSettings.Default).Normalize();
 
         // Collect inventory when it's due; only send it if it changed.

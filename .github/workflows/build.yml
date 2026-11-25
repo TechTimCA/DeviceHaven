@@ -101,7 +101,11 @@ jobs:
           Install "/i `"$msi\DeviceHaven-Agent.msi`" /qn SERVERURL=`"https://localhost:8443`" FINGERPRINT=`"$($code.fingerprint)`" ENROLLCODE=`"$($code.code)`" /l*v `"$logs\agent-install.log`""
           if ((Get-Service DeviceHavenAgent).Status -ne 'Running') { throw 'Agent service is not running' }
 
-          if (Select-String -Path "$logs\agent-install.log" -SimpleMatch $code.code -Quiet) { throw 'Enrolment code was written to the install log' }
+          $leaks = Select-String -Path "$logs\agent-install.log" -SimpleMatch $code.code
+          if ($leaks) {
+            $leaks | ForEach-Object { "LEAK line $($_.LineNumber): " + $_.Line.Replace($code.code, '[CODE]') }
+            throw 'Enrolment code was written to the install log'
+          }
           "Enrolment code is not in the install log"
 
           # 4. Wait for the device and its inventory
@@ -117,9 +121,10 @@ jobs:
           if (-not $device) { throw 'Agent did not enrol and report inventory' }
           "Enrolled: {0} | {1} {2} | {3} programs | model {4}" -f $device.device.hostname, $device.inventory.osName, $device.inventory.osBuild, $device.inventory.apps.Count, $device.inventory.model
 
-          if (Test-Path 'HKLM:\SOFTWARE\DeviceHaven\Agent\Pending') { throw 'Installer settings key was not removed' }
-          if ((Get-ItemProperty 'HKLM:\SOFTWARE\DeviceHaven\Agent').Configured -ne 1) { throw 'Agent did not mark itself configured' }
-          "Installer settings key removed; agent marked configured"
+          if ((Get-ItemProperty 'HKLM:\SOFTWARE\DeviceHaven\Agent').Configured -ne 1) { throw 'Agent was not marked configured' }
+          $cfg = Get-Content "$env:ProgramData\DeviceHaven\Agent\agent.json" -Raw | ConvertFrom-Json
+          if ($cfg.enrollmentCode) { throw 'Enrolment code was kept after enrolling' }
+          "Agent marked configured; enrolment code deleted after use"
 
           $acl = (Get-Acl "$env:ProgramData\DeviceHaven\Agent").Access | ForEach-Object { $_.IdentityReference.Value }
           if ($acl | Where-Object { $_ -match 'Users' }) { throw "Agent data folder is readable by users: $acl" }

@@ -38,6 +38,7 @@ public static class Setup
         config.Fingerprint = Fingerprint.Normalize(fingerprint);
         if (!string.IsNullOrWhiteSpace(code)) config.EnrollmentCode = code.Trim();
         store.SaveConfig(config);
+        if (OperatingSystem.IsWindows()) new RegistryPendingConfigSource().MarkConfigured();
         Console.WriteLine("DeviceHaven Agent configured.");
         return 0;
     }

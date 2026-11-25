@@ -43,11 +43,22 @@
                       Name="Configured" Type="raw" Bitness="always64" />
     </Property>
 
+    <!--
+      Saves the console details straight into the agent's locked-down folder by
+      running the agent's own setup step as SYSTEM. HideTarget keeps the command
+      line, and with it the enrolment code, out of the install log.
+    -->
+    <CustomAction Id="ConfigureAgent" FileRef="AgentExeFile"
+                  ExeCommand="configure --server &quot;[SERVERURL]&quot; --fingerprint &quot;[FINGERPRINT]&quot; --code &quot;[ENROLLCODE]&quot;"
+                  Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+
     <CustomAction Id="RequireServerSettings"
                   Error="DeviceHaven Agent needs to know which server to connect to. Run the installer again and enter the details from the DeviceHaven Console, or for a silent install add SERVERURL, FINGERPRINT and ENROLLCODE." />
     <InstallExecuteSequence>
       <Custom Action="RequireServerSettings" Before="InstallInitialize"
               Condition="NOT Installed AND NOT AGENTCONFIGURED AND NOT (SERVERURL AND FINGERPRINT AND ENROLLCODE)" />
+      <Custom Action="ConfigureAgent" After="InstallFiles"
+              Condition="NOT (REMOVE=&quot;ALL&quot;) AND SERVERURL AND FINGERPRINT" />
     </InstallExecuteSequence>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -102,21 +113,6 @@
         <CreateFolder>
           <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
         </CreateFolder>
-      </Component>
-
-      <!--
-        Hands the console details to the agent through a registry key that only
-        SYSTEM and Administrators can read. The agent copies them into its own
-        protected settings on start-up, then deletes the key.
-      -->
-      <Component Id="InstallerSettings" Directory="INSTALLFOLDER" Bitness="always64"
-                 Condition="SERVERURL AND FINGERPRINT" Guid="C4A1D9E2-3F6B-4A87-B2C5-9E0D1F7A3B68">
-        <RegistryKey Root="HKLM" Key="SOFTWARE\DeviceHaven\Agent\Pending" ForceCreateOnInstall="yes">
-          <PermissionEx Sddl="D:PAI(A;CI;KA;;;SY)(A;CI;KA;;;BA)" />
-          <RegistryValue Name="ServerUrl" Type="string" Value="[SERVERURL]" KeyPath="yes" />
-          <RegistryValue Name="Fingerprint" Type="string" Value="[FINGERPRINT]" />
-          <RegistryValue Name="EnrollmentCode" Type="string" Value="[ENROLLCODE]" />
-        </RegistryKey>
       </Component>
 
     </ComponentGroup>
