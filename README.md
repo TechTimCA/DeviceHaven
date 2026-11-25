@@ -60,13 +60,16 @@ Download the latest MSIs from the [Releases page](https://github.com/TechTimCA/D
 
 ## Roadmap
 
-| Stage | What you get |
-|---|---|
-| 1 (in progress) | ✅ Installers, console, enrolment and inventory · Next: admin sign-in with two-step verification, tray app, lighter agent |
-| 2 | Software deployment (winget catalog) and Windows patching |
-| 3 | Policies, remote tools and remote help |
-| 4 | Imaging: image library, drivers, USB then network (PXE) boot |
-| 5 | macOS and Linux: agents for both (.pkg, .deb and .rpm), and the server on Linux or Docker |
+DeviceHaven 1.0 is planned for **December 2027**, with one stage per quarter. See the full
+[2027 roadmap](ROADMAP.md) for every feature, target month and gate.
+
+| When | Release | What you get |
+|---|---|---|
+| Now | 0.1 previews | ✅ Installers, console, secure enrolment and inventory |
+| Q1 2027 | 0.2 public beta | Admin sign-in with two-step verification, tray app, lighter agent, signed MSIs |
+| Q2 2027 | 0.5 | Software deployment (winget catalog), Windows patching, scripts and reports |
+| Q3 2027 | 0.8 | Policies, BitLocker and admin passwords, remote tools, alerts, security hardening |
+| Q4 2027 | 1.0 | Imaging (USB and network boot, zero-touch), macOS and Linux agent previews |
 
 The protocol, server and agent core are already cross-platform .NET. Only the parts that
 talk to the operating system (inventory, secret storage, service hosting and installers) are
