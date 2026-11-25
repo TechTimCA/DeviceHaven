@@ -67,6 +67,79 @@ jobs:
             "{0}  {1:N1} MB  version {2}" -f $msi.Name, ($msi.Length / 1MB), $version
           }
 
+      - name: Install test (silent server + agent install, enrol, uninstall)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path out/msi).Path
+          New-Item -ItemType Directory -Force out/logs | Out-Null
+          $logs = (Resolve-Path out/logs).Path
+
+          function Install([string]$args) {
+            $p = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "msiexec $args failed with exit code $($p.ExitCode)" }
+          }
+
+          # 1. Server, silent
+          Install "/i `"$msi\DeviceHaven-Server.msi`" /qn /l*v `"$logs\server-install.log`""
+          if ((Get-Service DeviceHavenServer).Status -ne 'Running') { throw 'Server service is not running' }
+
+          # The server trusts its own certificate on this machine, so no -SkipCertificateCheck is needed.
+          $ok = $false
+          foreach ($i in 1..30) {
+            try { Invoke-RestMethod https://localhost:8443/api/health | Out-Null; $ok = $true; break } catch { Start-Sleep 2 }
+          }
+          if (-not $ok) { throw 'Console did not answer on https://localhost:8443 with a trusted certificate' }
+          "Server is up with a trusted certificate"
+
+          # 2. Code from the admin API, as the console does
+          $code = Invoke-RestMethod -Method Post https://localhost:8443/api/admin/enrollment-codes -ContentType 'application/json' -Body '{"validHours":1,"maxUses":1}'
+
+          # 3. Agent, silent, with properties
+          Install "/i `"$msi\DeviceHaven-Agent.msi`" /qn SERVERURL=`"https://localhost:8443`" FINGERPRINT=`"$($code.fingerprint)`" ENROLLCODE=`"$($code.code)`" /l*v `"$logs\agent-install.log`""
+          if ((Get-Service DeviceHavenAgent).Status -ne 'Running') { throw 'Agent service is not running' }
+
+          if (Select-String -Path "$logs\agent-install.log" -SimpleMatch $code.code -Quiet) { throw 'Enrolment code was written to the install log' }
+          "Enrolment code is not in the install log"
+
+          # 4. Wait for the device and its inventory
+          $device = $null
+          foreach ($i in 1..45) {
+            $devices = @(Invoke-RestMethod https://localhost:8443/api/admin/devices)
+            if ($devices.Count -ge 1) {
+              $detail = Invoke-RestMethod "https://localhost:8443/api/admin/devices/$($devices[0].id)"
+              if ($detail.inventory) { $device = $detail; break }
+            }
+            Start-Sleep 2
+          }
+          if (-not $device) { throw 'Agent did not enrol and report inventory' }
+          "Enrolled: {0} | {1} {2} | {3} programs | model {4}" -f $device.device.hostname, $device.inventory.osName, $device.inventory.osBuild, $device.inventory.apps.Count, $device.inventory.model
+
+          if (Test-Path 'HKLM:\SOFTWARE\DeviceHaven\Agent\Pending') { throw 'Installer settings key was not removed' }
+          if ((Get-ItemProperty 'HKLM:\SOFTWARE\DeviceHaven\Agent').Configured -ne 1) { throw 'Agent did not mark itself configured' }
+          "Installer settings key removed; agent marked configured"
+
+          $acl = (Get-Acl "$env:ProgramData\DeviceHaven\Agent").Access | ForEach-Object { $_.IdentityReference.Value }
+          if ($acl | Where-Object { $_ -match 'Users' }) { throw "Agent data folder is readable by users: $acl" }
+          "Agent data folder locked to: $($acl -join ', ')"
+
+          $proc = Get-Process -Name DeviceHaven.Agent
+          "Agent memory: {0:N0} MB working set" -f ($proc.WorkingSet64 / 1MB)
+
+          # 5. Uninstall both, silently
+          Install "/x `"$msi\DeviceHaven-Agent.msi`" /qn /l*v `"$logs\agent-uninstall.log`""
+          Install "/x `"$msi\DeviceHaven-Server.msi`" /qn /l*v `"$logs\server-uninstall.log`""
+          if (Get-Service DeviceHavenAgent -ErrorAction SilentlyContinue) { throw 'Agent service still present after uninstall' }
+          if (Get-Service DeviceHavenServer -ErrorAction SilentlyContinue) { throw 'Server service still present after uninstall' }
+          "Both uninstalled cleanly"
+
+      - name: Upload install logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs
+          path: out/logs
+
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
