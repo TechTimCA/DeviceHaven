@@ -111,7 +111,7 @@
       -->
       <Component Id="InstallerSettings" Directory="INSTALLFOLDER" Bitness="always64"
                  Condition="SERVERURL AND FINGERPRINT" Guid="C4A1D9E2-3F6B-4A87-B2C5-9E0D1F7A3B68">
-        <RegistryKey Root="HKLM" Key="SOFTWARE\DeviceHaven\Agent\Pending">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\DeviceHaven\Agent\Pending" ForceCreateOnInstall="yes">
           <PermissionEx Sddl="D:PAI(A;CI;KA;;;SY)(A;CI;KA;;;BA)" />
           <RegistryValue Name="ServerUrl" Type="string" Value="[SERVERURL]" KeyPath="yes" />
           <RegistryValue Name="Fingerprint" Type="string" Value="[FINGERPRINT]" />
