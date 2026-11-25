@@ -106,11 +106,30 @@ public sealed record InventorySnapshot(
     string? LoggedOnUser,
     IReadOnlyList<DiskInfo> Disks,
     IReadOnlyList<InstalledApp> Apps,
-    DateTimeOffset CollectedAt);
+    DateTimeOffset CollectedAt,
+    IReadOnlyList<NetworkAdapter>? Networks = null)
+{
+    /// <summary>
+    /// The address people think of as "the PC's IP": the IPv4 address on the
+    /// adapter that has a default gateway, else the first IPv4 address found.
+    /// </summary>
+    public string? PrimaryIpv4 =>
+        Networks?.FirstOrDefault(n => n.Gateway is not null && n.Ipv4.Count > 0)?.Ipv4[0]
+        ?? Networks?.FirstOrDefault(n => n.Ipv4.Count > 0)?.Ipv4[0];
+}
 
 public sealed record DiskInfo(string Name, long SizeBytes, long FreeBytes, bool? BitLockerOn);
 
 public sealed record InstalledApp(string Name, string? Version, string? Publisher);
+
+public sealed record NetworkAdapter(
+    string Name,
+    string? MacAddress,
+    IReadOnlyList<string> Ipv4,
+    IReadOnlyList<string> Ipv6,
+    string? Gateway,
+    string Type,
+    long? SpeedMbps);
 
 /// <summary>Problem response body used by every API error.</summary>
 public sealed record ApiError(string Code, string Message);

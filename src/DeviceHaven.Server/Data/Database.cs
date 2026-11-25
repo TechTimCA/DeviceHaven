@@ -63,7 +63,8 @@ public sealed class Database
                 inventory_json  TEXT,
                 inventory_hash  TEXT,
                 inventory_at    TEXT,
-                revoked         INTEGER NOT NULL DEFAULT 0
+                revoked         INTEGER NOT NULL DEFAULT 0,
+                primary_ip      TEXT
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -90,5 +91,19 @@ public sealed class Database
             SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_info);
             """;
         command.ExecuteNonQuery();
+
+        // Version 0.1.9: devices.primary_ip (the PC's own main IPv4 address).
+        AddColumnIfMissing(connection, "devices", "primary_ip", "TEXT");
+    }
+
+    private static void AddColumnIfMissing(Microsoft.Data.Sqlite.SqliteConnection connection, string table, string column, string type)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $c";
+        check.Parameters.AddWithValue("$c", column);
+        if (Convert.ToInt64(check.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) > 0) return;
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {type}";
+        alter.ExecuteNonQuery();
     }
 }

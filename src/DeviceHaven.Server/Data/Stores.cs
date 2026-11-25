@@ -15,7 +15,8 @@ public sealed record DeviceSummary(
     DateTimeOffset EnrolledAt,
     DateTimeOffset? LastSeen,
     string? LastIp,
-    bool Revoked);
+    bool Revoked,
+    string? PrimaryIp);
 
 public sealed record DeviceDetail(DeviceSummary Device, InventorySnapshot? Inventory, DateTimeOffset? InventoryAt);
 
@@ -135,9 +136,11 @@ public sealed class Store
             cmd.CommandText = """
                 UPDATE devices SET last_seen = $now, last_ip = $ip, agent_version = $agent,
                     hostname = $host, os_name = $os, os_version = $ver,
-                    inventory_json = $inv, inventory_hash = $ihash, inventory_at = $now
+                    inventory_json = $inv, inventory_hash = $ihash, inventory_at = $now,
+                    primary_ip = $pip
                 WHERE id = $id
                 """;
+            cmd.Parameters.AddWithValue("$pip", (object?)inventory.PrimaryIpv4 ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$host", Clip(inventory.Hostname, 64));
             cmd.Parameters.AddWithValue("$os", Clip(inventory.OsName, 128));
             cmd.Parameters.AddWithValue("$ver", Clip(inventory.OsVersion, 64));
@@ -171,8 +174,8 @@ public sealed class Store
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
         var summary = ReadSummary(r);
-        var inventory = r.IsDBNull(9) ? null : JsonSerializer.Deserialize(r.GetString(9), ProtocolJson.Default.InventorySnapshot);
-        return new DeviceDetail(summary, inventory, ParseDate(r, 10));
+        var inventory = r.IsDBNull(10) ? null : JsonSerializer.Deserialize(r.GetString(10), ProtocolJson.Default.InventorySnapshot);
+        return new DeviceDetail(summary, inventory, ParseDate(r, 11));
     }
 
     public bool RevokeDevice(Guid id)
@@ -185,11 +188,12 @@ public sealed class Store
     }
 
     private const string SummaryColumns =
-        "id, hostname, os_name, os_version, agent_version, enrolled_at, last_seen, last_ip, revoked";
+        "id, hostname, os_name, os_version, agent_version, enrolled_at, last_seen, last_ip, revoked, primary_ip";
 
     private static DeviceSummary ReadSummary(SqliteDataReader r) => new(
         Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4),
-        ParseDate(r, 5)!.Value, ParseDate(r, 6), r.IsDBNull(7) ? null : r.GetString(7), r.GetInt64(8) != 0);
+        ParseDate(r, 5)!.Value, ParseDate(r, 6), r.IsDBNull(7) ? null : r.GetString(7), r.GetInt64(8) != 0,
+        r.IsDBNull(9) ? null : r.GetString(9));
 
     // ---------- Settings ----------
 

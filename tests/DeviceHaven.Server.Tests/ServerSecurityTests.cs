@@ -196,6 +196,45 @@ public sealed class ServerSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task Device_list_shows_the_pcs_own_ipv4_address()
+    {
+        var enrolled = await EnrollAsync();
+        var inventory = SampleInventory();
+        await CheckInAsync(enrolled.DeviceToken, inventory, InventoryHash.Compute(inventory));
+
+        var devices = await _client.GetFromJsonAsync<List<DeviceSummary>>("/api/admin/devices");
+        Assert.Equal("192.168.10.25", devices!.Single().PrimaryIp);
+    }
+
+    [Fact]
+    public void Upgrading_an_existing_database_adds_new_columns()
+    {
+        // A database from version 0.1.8, before primary_ip existed.
+        var dir = Path.Combine(Path.GetTempPath(), "devicehaven-migrate", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var db = new Database(dir);
+        using (var c = db.Open())
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = """
+                CREATE TABLE devices (id TEXT PRIMARY KEY, hostname TEXT NOT NULL, os_name TEXT NOT NULL, os_version TEXT NOT NULL,
+                  agent_version TEXT NOT NULL, token_hash TEXT NOT NULL, enrolled_at TEXT NOT NULL, last_seen TEXT, last_ip TEXT,
+                  inventory_json TEXT, inventory_hash TEXT, inventory_at TEXT, revoked INTEGER NOT NULL DEFAULT 0);
+                INSERT INTO devices (id, hostname, os_name, os_version, agent_version, token_hash, enrolled_at)
+                VALUES ('6f1c2d3e-0000-4000-8000-000000000001', 'OLD-PC', 'Windows', '10.0', '0.1.8', 'x', '2026-11-25T18:00:00.0000000+00:00');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        db.Migrate();
+        db.Migrate(); // running twice is safe
+
+        var devices = new Store(db, TimeProvider.System).ListDevices();
+        Assert.Equal("OLD-PC", devices.Single().Hostname);
+        Assert.Null(devices.Single().PrimaryIp);
+    }
+
+    [Fact]
     public async Task Audit_log_records_actions_and_cannot_be_edited()
     {
         await EnrollAsync();
@@ -226,7 +265,9 @@ public sealed class ServerSecurityTests : IDisposable
         "Dell Inc.", "OptiPlex 7020", "ABC1234", "Intel Core i5-14500", 20, 16L * 1024 * 1024 * 1024, @"OFFICE\tim",
         [new DiskInfo(@"C:\", 512_000_000_000, 300_000_000_000, true)],
         [new InstalledApp("7-Zip", "24.09", "Igor Pavlov"), new InstalledApp("Google Chrome", "131.0", "Google LLC")],
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow,
+        [new NetworkAdapter("vEthernet (Default Switch)", "00:15:5D:01:02:03", ["172.20.0.1"], [], null, "Ethernet", 10000),
+         new NetworkAdapter("Ethernet", "A4:BB:6D:12:34:56", ["192.168.10.25"], [], "192.168.10.1", "Ethernet", 1000)]);
 
     private async Task<string> ReadAllDatabaseFilesAsync()
     {

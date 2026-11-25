@@ -21,6 +21,10 @@ public static class InventoryHash
             Apps = snapshot.Apps
                 .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(a => a.Version, StringComparer.OrdinalIgnoreCase).ToList(),
+            // Link speed can wobble on Wi-Fi; an address or adapter change still counts.
+            Networks = snapshot.Networks?
+                .Select(n => n with { SpeedMbps = null })
+                .OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase).ToList(),
         };
         var json = JsonSerializer.SerializeToUtf8Bytes(stable, ProtocolJson.Default.InventorySnapshot);
         return Convert.ToHexString(SHA256.HashData(json));

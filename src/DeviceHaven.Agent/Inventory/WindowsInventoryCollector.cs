@@ -35,7 +35,8 @@ public sealed class WindowsInventoryCollector(ILogger<WindowsInventoryCollector>
             LoggedOnUser: AsString(system?["UserName"]),
             Disks: ReadDisks(),
             Apps: ReadInstalledApps(),
-            CollectedAt: DateTimeOffset.UtcNow);
+            CollectedAt: DateTimeOffset.UtcNow,
+            Networks: BasicInventoryCollector.ReadNetworks());
     }
 
     private ManagementBaseObject? QueryFirst(string wql, string scope = @"root\cimv2")

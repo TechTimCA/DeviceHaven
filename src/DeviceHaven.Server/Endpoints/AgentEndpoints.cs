@@ -23,7 +23,7 @@ public static class AgentEndpoints
                 return Error(StatusCodes.Status400BadRequest, "protocol_mismatch",
                     $"This server speaks protocol {ProtocolVersion.Current}; the agent sent {request.ProtocolVersion}.");
 
-            var ip = http.Connection.RemoteIpAddress?.ToString();
+            var ip = ClientIp(http);
             var result = store.Enroll(request, ip);
             if (result is null)
             {
@@ -50,7 +50,7 @@ public static class AgentEndpoints
                 storedHash = InventoryHash.Compute(request.Inventory);
             }
 
-            store.RecordCheckIn(device.Id, request.AgentVersion, http.Connection.RemoteIpAddress?.ToString(),
+            store.RecordCheckIn(device.Id, request.AgentVersion, ClientIp(http),
                 request.Inventory, storedHash);
 
             // Ask for a full inventory if the server doesn't hold the version the agent has.
@@ -59,6 +59,14 @@ public static class AgentEndpoints
 
             return Results.Ok(new CheckInResponse(store.GetAgentSettings(), inventoryRequested, []));
         }).WithMetadata(new RequestSizeLimitAttribute(MaxCheckInBytes));
+    }
+
+    /// <summary>The address the agent connected from, shown as IPv4 when it is an IPv4-mapped address.</summary>
+    internal static string? ClientIp(HttpContext http)
+    {
+        var ip = http.Connection.RemoteIpAddress;
+        if (ip is null) return null;
+        return (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
     }
 
     internal static string? BearerToken(HttpContext http)

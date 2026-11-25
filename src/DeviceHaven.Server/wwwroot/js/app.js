@@ -103,7 +103,7 @@
     $('s-checkin-note').textContent = `±${state.settings.jitterPercent}% spread`;
 
     const term = $('search').value.trim().toLowerCase();
-    const rows = active.filter((d) => !term || `${d.hostname} ${d.osName} ${d.lastIp}`.toLowerCase().includes(term));
+    const rows = active.filter((d) => !term || `${d.hostname} ${d.osName} ${d.primaryIp ?? ''} ${d.lastIp ?? ''}`.toLowerCase().includes(term));
     const body = $('devices');
     body.replaceChildren(...rows.map((d) => {
       const on = isOnline(d);
@@ -113,7 +113,7 @@
         el('td', {}, d.osName),
         el('td', {}, d.agentVersion),
         el('td', {}, ago(d.lastSeen)),
-        el('td', {}, d.lastIp ?? '–'),
+        el('td', {}, d.primaryIp ?? d.lastIp ?? '–'),
         el('td', {}, el('button', { type: 'button', class: 'btn small', onclick: () => openDevice(d.id) }, 'Details')));
     }));
     $('empty').hidden = active.length > 0;
@@ -142,6 +142,8 @@
         fact('Processor', inv ? `${inv.cpuName ?? 'Unknown'} (${inv.cpuCores} threads)` : null),
         fact('Memory', inv ? bytes(inv.totalMemoryBytes) : null),
         fact('Signed-in user', inv?.loggedOnUser),
+        fact('IP address', d.primaryIp ?? inv?.primaryIpv4),
+        fact('Connected from', d.lastIp),
         fact('Inventory updated', detail.inventoryAt ? ago(detail.inventoryAt) : 'Not yet')),
     ];
     if (inv) {
@@ -151,6 +153,15 @@
         el('tbody', {}, ...inv.disks.map((k) => el('tr', {},
           el('td', {}, k.name), el('td', {}, bytes(k.sizeBytes)), el('td', {}, bytes(k.freeBytes)),
           el('td', {}, k.bitLockerOn == null ? 'Unknown' : k.bitLockerOn ? 'On' : 'Off')))))));
+      if (inv.networks?.length) {
+        parts.push(el('h3', {}, 'Network'));
+        parts.push(el('div', { class: 'table-wrap' }, el('table', {},
+          el('thead', {}, el('tr', {}, el('th', {}, 'Adapter'), el('th', {}, 'Type'), el('th', {}, 'IPv4'), el('th', {}, 'Gateway'), el('th', {}, 'MAC address'), el('th', {}, 'Speed'))),
+          el('tbody', {}, ...inv.networks.map((n) => el('tr', {},
+            el('td', {}, n.name), el('td', {}, n.type), el('td', {}, n.ipv4?.join(', ') || '–'),
+            el('td', {}, n.gateway ?? '–'), el('td', {}, n.macAddress ?? '–'),
+            el('td', {}, n.speedMbps ? (n.speedMbps >= 1000 ? `${n.speedMbps / 1000} Gbps` : `${n.speedMbps} Mbps`) : '–')))))));
+      }
       parts.push(el('h3', {}, `Installed programs (${inv.apps.length})`));
       parts.push(el('div', { class: 'table-wrap' }, el('table', {},
         el('thead', {}, el('tr', {}, el('th', {}, 'Name'), el('th', {}, 'Version'), el('th', {}, 'Publisher'))),

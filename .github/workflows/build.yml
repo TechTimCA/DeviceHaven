@@ -119,7 +119,8 @@ jobs:
             Start-Sleep 2
           }
           if (-not $device) { throw 'Agent did not enrol and report inventory' }
-          "Enrolled: {0} | {1} {2} | {3} programs | model {4}" -f $device.device.hostname, $device.inventory.osName, $device.inventory.osBuild, $device.inventory.apps.Count, $device.inventory.model
+          "Enrolled: {0} | {1} {2} | {3} programs | model {4} | IP {5}" -f $device.device.hostname, $device.inventory.osName, $device.inventory.osBuild, $device.inventory.apps.Count, $device.inventory.model, $device.device.primaryIp
+          if ($device.device.primaryIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { throw "No IPv4 address reported: '$($device.device.primaryIp)'" }
 
           if ((Get-ItemProperty 'HKLM:\SOFTWARE\DeviceHaven\Agent').Configured -ne 1) { throw 'Agent was not marked configured' }
           $cfg = Get-Content "$env:ProgramData\DeviceHaven\Agent\agent.json" -Raw | ConvertFrom-Json
