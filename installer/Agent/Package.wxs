@@ -112,16 +112,13 @@
         Start menu opens it. Closed during upgrades and uninstalls.
       -->
       <Component Id="TrayExe" Directory="INSTALLFOLDER" Bitness="always64">
-        <File Id="TrayExeFile" Source="$(var.AgentDir)\DeviceHaven.Tray.exe" KeyPath="yes" />
+        <File Id="TrayExeFile" Source="$(var.AgentDir)\DeviceHaven.Tray.exe" KeyPath="yes">
+          <Shortcut Id="TrayShortcut" Directory="ProgramMenuFolder" Name="DeviceHaven" Advertise="no"
+                    Description="See this PC's DeviceHaven status and notifications"
+                    WorkingDirectory="INSTALLFOLDER" Icon="AgentIcon" />
+        </File>
         <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="DeviceHaven"
                        Type="string" Value="&quot;[#TrayExeFile]&quot;" />
-      </Component>
-
-      <Component Id="TrayStartMenu" Directory="ProgramMenuFolder" Bitness="always64"
-                 Guid="0B9E3C57-7A14-4F2D-9E68-5C1A2D8F4B90">
-        <Shortcut Id="TrayShortcut" Name="DeviceHaven" Description="See this PC's DeviceHaven status and notifications"
-                  Target="[#TrayExeFile]" WorkingDirectory="INSTALLFOLDER" Icon="AgentIcon" />
-        <RegistryValue Root="HKLM" Key="SOFTWARE\DeviceHaven\Agent" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
 
       <Component Id="AgentAppSettings" Directory="INSTALLFOLDER" Bitness="always64">
